@@ -1,0 +1,74 @@
+#ifndef hwman_idl
+#define hwman_idl
+
+#include <wphwmgr.idl>
+
+interface M_WPHwManagerEx;
+
+interface WPHwManagerEx : WPHwManager
+{
+
+#ifdef __SOMIDL__
+    implementation
+    {
+        local;
+        majorversion                = 1;
+        minorversion                = 1;
+        metaclass                   = M_WPHwManagerEx;
+        callstyle                   = oidl;
+        filestem                    = hwman;
+        dllname                     = "hwman.dll";
+        somDefaultInit              :init,override;
+        somDestruct                 :override;
+        wpPopulate                  :override;
+
+        passthru C_xh_before = ""
+        "#define INCL_PM"
+        "#define INCL_BASE"
+        "#include <os2.h>"
+        "";
+
+        passthru C_xih_after = ""
+        "#include <wpbus.xh>"
+        "#include <stdio.h>"
+        "#include <rmcalls.h>"
+        "typedef RMHANDLE (SOMLINK FN_GETUNIQUEID)(WPDevice *somSelf);"
+        "typedef FN_GETUNIQUEID *PFN_GETUNIQUEID;"
+        "typedef RMHANDLE (SOMLINK FN_GETPARENTID)(WPDevice *somSelf);"
+        "typedef FN_GETPARENTID *PFN_GETPARENTID;"
+        "typedef USHORT (SOMLINK FN_GETNODEBASETYPE)(WPDevice *somSelf);"
+        "typedef FN_GETNODEBASETYPE *PFN_GETNODEBASETYPE;"
+        "typedef BOOL (SOMLINK FN_WPASSERTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);"
+        "typedef FN_WPASSERTFOLDERMUTEXSEM *PFN_WPASSERTFOLDERMUTEXSEM;"
+        "typedef ULONG (SOMLINK FN_WPREQUESTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf,ULONG ulTimeOut);"
+        "typedef FN_WPREQUESTFOLDERMUTEXSEM *PFN_WPREQUESTFOLDERMUTEXSEM;"
+        "typedef ULONG (SOMLINK FN_WPRELEASEFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);"
+        "typedef FN_WPRELEASEFOLDERMUTEXSEM *PFN_WPRELEASEFOLDERMUTEXSEM;"
+        "//add missing definition for RMEnumNodes: it was determined experimentally ..."
+        "APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USHORT dLen);"
+        "";
+
+    };
+#endif
+};
+
+interface M_WPHwManagerEx : M_WPHwManager
+{
+
+#ifdef __SOMIDL__
+    implementation
+    {
+        local;
+        majorversion                = 1;
+        minorversion                = 1;
+        callstyle                   = oidl;
+        filestem                    = hwman;
+        dllname                     = "hwman.dll";
+        wpclsQueryStyle             :override;
+        wpclsQueryTitle             :override;
+    };
+#endif
+};
+
+#endif
+
