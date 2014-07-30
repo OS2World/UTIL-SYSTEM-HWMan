@@ -3,6 +3,32 @@
 
 #include <wphwmgr.idl>
 
+typedef somToken PFN_GETUNIQUEID;
+typedef somToken PFN_GETPARENTID;
+typedef somToken PFN_GETNODETYPE;
+typedef somToken PFN_GETNODEBASETYPE;
+typedef somToken PFN_GETNODESUBTYPE;
+typedef somToken PFN_SETUNIQUEID;
+typedef somToken PFN_SETPARENTID;
+typedef somToken PFN_SETNODETYPE;
+typedef somToken PFN_SETNODEBASETYPE;
+typedef somToken PFN_SETNODESUBTYPE;
+typedef somToken PFN_SETDDDATE;
+typedef somToken PFN_SETDEVICEDRIVER;
+typedef somToken PFN_SETDDNAME;
+typedef somToken PFN_SETDDVENDOR;
+typedef somToken PFN_SETDDVERSION;
+typedef somToken PFN_ADDIRQRESOURCE;
+typedef somToken PFN_ADDDMARESOURCE;
+typedef somToken PFN_ADDIORESOURCE;
+typedef somToken PFN_ADDMEMORYRESOURCE;
+typedef somToken PFN_WPREQUESTFOLDERMUTEXSEM;
+typedef somToken PFN_WPRELEASEFOLDERMUTEXSEM;
+typedef somToken PFN_WPREQUESTFINDMUTEXSEM;
+typedef somToken PFN_WPRELEASEFINDMUTEXSEM;
+typedef somToken HMQ;
+
+
 interface M_WPHwManagerEx;
 
 interface WPHwManagerEx : WPHwManager
@@ -21,6 +47,10 @@ interface WPHwManagerEx : WPHwManager
         somDefaultInit              :init,override;
         somDestruct                 :override;
         wpPopulate                  :override;
+        wpInitData                   :override;
+        wpAddToObjUseList        :override;
+        wpDeleteFromObjUseList  :override;
+
 
         passthru C_xh_before = ""
         "#define INCL_PM"
@@ -29,25 +59,79 @@ interface WPHwManagerEx : WPHwManager
         "";
 
         passthru C_xih_after = ""
+        "#include <wpaudio.xh>"
         "#include <wpbus.xh>"
+        "#include <wpcdrom.xh>"
+        "#include <wpcpu.xh>"
+        "#include <wpdskett.xh>"
+        "#include <wpdisply.xh>"
+        "#include <wphrddrv.xh>"
+        "#include <wpkeybdd.xh>"
+        "#include <wpmem.xh>"
+        "#include <wpmoused.xh>"
+        "#include <wpparal.xh>"
+        "#include <wpperiph.xh>"
+        "#include <wpserial.xh>"
+        "#include <wptape.xh>"
+        "#include <wptimer.xh>"
         "#include <stdio.h>"
         "#include <rmcalls.h>"
         "typedef RMHANDLE (SOMLINK FN_GETUNIQUEID)(WPDevice *somSelf);"
         "typedef FN_GETUNIQUEID *PFN_GETUNIQUEID;"
         "typedef RMHANDLE (SOMLINK FN_GETPARENTID)(WPDevice *somSelf);"
         "typedef FN_GETPARENTID *PFN_GETPARENTID;"
+        "typedef ULONG (SOMLINK FN_GETNODETYPE)(WPDevice *somSelf);"
+        "typedef FN_GETNODETYPE *PFN_GETNODETYPE;"
         "typedef USHORT (SOMLINK FN_GETNODEBASETYPE)(WPDevice *somSelf);"
         "typedef FN_GETNODEBASETYPE *PFN_GETNODEBASETYPE;"
+        "typedef USHORT (SOMLINK FN_GETNODESUBTYPE)(WPDevice *somSelf);"
+        "typedef FN_GETNODESUBTYPE *PFN_GETNODESUBTYPE;"
+        "typedef VOID (SOMLINK FN_SETUNIQUEID)(WPDevice *somSelf,RMHANDLE rmHandle);"
+        "typedef FN_SETUNIQUEID *PFN_SETUNIQUEID;"
+        "typedef VOID (SOMLINK FN_SETPARENTID)(WPDevice *somSelf,RMHANDLE rmHandle);"
+        "typedef FN_SETPARENTID *PFN_SETPARENTID;"
+        "typedef VOID (SOMLINK FN_SETNODETYPE)(WPDevice *somSelf,ULONG nodeType);"
+        "typedef FN_SETNODETYPE *PFN_SETNODETYPE;"
+        "typedef VOID (SOMLINK FN_SETNODEBASETYPE)(WPDevice *somSelf,USHORT nodeBaseType);"
+        "typedef FN_SETNODEBASETYPE *PFN_SETNODEBASETYPE;"
+        "typedef VOID (SOMLINK FN_SETNODESUBTYPE)(WPDevice *somSelf,USHORT nodeSubType);"
+        "typedef FN_SETNODESUBTYPE *PFN_SETNODESUBTYPE;"
+        "typedef VOID (SOMLINK FN_SETDDDATE)(WPDevice *somSelf,PFDATE pDate);"
+        "typedef FN_SETDDDATE *PFN_SETDDDATE;"
+        "typedef VOID (SOMLINK FN_SETDEVICEDRIVER)(WPDevice *somSelf,PSZ pString);"
+        "typedef FN_SETDEVICEDRIVER *PFN_SETDEVICEDRIVER;"
+        "typedef VOID (SOMLINK FN_SETDDNAME)(WPDevice *somSelf,PSZ pString);"
+        "typedef FN_SETDDNAME *PFN_SETDDNAME;"
+        "typedef VOID (SOMLINK FN_SETDDVENDOR)(WPDevice *somSelf,PSZ pString);"
+        "typedef FN_SETDDVENDOR *PFN_SETDDVENDOR;"
+        "typedef VOID (SOMLINK FN_SETDDVERSION)(WPDevice *somSelf,PSZ pString);"
+        "typedef FN_SETDDVERSION *PFN_SETDDVERSION;"
+        "typedef VOID (SOMLINK FN_ADDIRQRESOURCE)(WPDevice *somSelf,PIRQRESOURCE pIRQResource);"
+        "typedef FN_ADDIRQRESOURCE *PFN_ADDIRQRESOURCE;"
+        "typedef VOID (SOMLINK FN_ADDDMARESOURCE)(WPDevice *somSelf,PDMARESOURCE pDMAResource);"
+        "typedef FN_ADDDMARESOURCE *PFN_ADDDMARESOURCE;"
+        "typedef VOID (SOMLINK FN_ADDIORESOURCE)(WPDevice *somSelf,PIORESOURCE pIOResource);"
+        "typedef FN_ADDIORESOURCE *PFN_ADDIORESOURCE;"
+        "typedef VOID (SOMLINK FN_ADDMEMORYRESOURCE)(WPDevice *somSelf,PMEMRESOURCE pMemResource);"
+        "typedef FN_ADDMEMORYRESOURCE *PFN_ADDMEMORYRESOURCE;"
+        "typedef VOID (SOMLINK FN_SETIOPORTS)(WPDevice *somSelf,PSZ pszResource);"
+        "typedef FN_SETIOPORTS *PFN_SETIOPORTS;"
         "typedef BOOL (SOMLINK FN_WPASSERTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);"
         "typedef FN_WPASSERTFOLDERMUTEXSEM *PFN_WPASSERTFOLDERMUTEXSEM;"
         "typedef ULONG (SOMLINK FN_WPREQUESTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf,ULONG ulTimeOut);"
         "typedef FN_WPREQUESTFOLDERMUTEXSEM *PFN_WPREQUESTFOLDERMUTEXSEM;"
         "typedef ULONG (SOMLINK FN_WPRELEASEFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);"
         "typedef FN_WPRELEASEFOLDERMUTEXSEM *PFN_WPRELEASEFOLDERMUTEXSEM;"
+        "typedef ULONG (SOMLINK FN_WPREQUESTFINDMUTEXSEM)(WPHwManagerEx *somSelf,ULONG ulTimeOut);"
+        "typedef FN_WPREQUESTFINDMUTEXSEM *PFN_WPREQUESTFINDMUTEXSEM;"
+        "typedef ULONG (SOMLINK FN_WPRELEASEFINDMUTEXSEM)(WPHwManagerEx *somSelf);"
+        "typedef FN_WPRELEASEFINDMUTEXSEM *PFN_WPRELEASEFINDMUTEXSEM;"
         "//add missing definition for RMEnumNodes: it was determined experimentally ..."
         "APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USHORT dLen);"
         "";
 
+
+        HMQ hmqRefreshThread;
     };
 #endif
 };
@@ -61,11 +145,34 @@ interface M_WPHwManagerEx : M_WPHwManager
         local;
         majorversion                = 1;
         minorversion                = 1;
-        callstyle                   = oidl;
-        filestem                    = hwman;
-        dllname                     = "hwman.dll";
+        callstyle                     = oidl;
+        filestem                      = hwman;
+        dllname                      = "hwman.dll";
         wpclsQueryStyle             :override;
         wpclsQueryTitle             :override;
+        wpclsInitData                :override;
+        wpclsUnInitData             :override;
+        wpclsQueryDefaultView   :override;
+
+        PFN_SETUNIQUEID wpSetUniqueID;
+        PFN_SETPARENTID wpSetParentID;
+        PFN_SETNODETYPE wpSetNodeType;
+        PFN_SETNODEBASETYPE wpSetNodeBaseType;
+        PFN_SETNODESUBTYPE  wpSetNodeSubType;
+        PFN_SETDDDATE    wpSetDDDate;
+        PFN_SETDEVICEDRIVER wpSetDeviceDriver;
+        PFN_SETDDNAME     wpSetDDName;
+        PFN_SETDDVENDOR  wpSetDDVendor;
+        PFN_SETDDVERSION  wpSetDDVersion;
+        PFN_ADDIRQRESOURCE wpAddIRQResource;
+        PFN_ADDDMARESOURCE wpAddDMAResource;
+        PFN_ADDIORESOURCE wpAddIOResource;
+        PFN_ADDMEMORYRESOURCE wpAddMemoryResource;
+        PFN_GETUNIQUEID wpGetUniqueID;
+        PFN_WPREQUESTFOLDERMUTEXSEM wpRequestFolderMutexSem;
+        PFN_WPRELEASEFOLDERMUTEXSEM wpReleaseFolderMutexSem;
+        PFN_WPREQUESTFINDMUTEXSEM wpRequestFindMutexSem;
+        PFN_WPRELEASEFINDMUTEXSEM wpReleaseFindMutexSem;
     };
 #endif
 };

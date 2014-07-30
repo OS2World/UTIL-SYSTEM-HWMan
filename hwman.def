@@ -5,7 +5,7 @@
 ;      SOM Precompiler somipc: 2.29.1.17
 ;      SOM Emitter emitdef: 2.47
 LIBRARY hwman INITINSTANCE TERMINSTANCE
-DESCRIPTION '@#Lars Erdmann:1.0.1#@##1## 2013/05/15 22:06:31      Standbein ::::1::0@@WPHwManagerEx Class Library'
+DESCRIPTION '@#Lars Erdmann:2.0.1#@##1## 2014/07/25 22:34:31      Standbein ::::1::0@@WPHwManagerEx Class Library'
 PROTMODE
 DATA MULTIPLE NONSHARED LOADONCALL
 EXPORTS
@@ -18,4 +18,7 @@ EXPORTS
    M_WPHwManagerExNewClass
 
 IMPORTS
-   RMEnumNodes = RMINFO.2
+   RMEnumNodes  = RMINFO.2
+   RMGetNodeInfo = RMINFO.5
+   RMCreateAdapter = RMINFO.9
+   RMCreateDriver = RMINFO.6    

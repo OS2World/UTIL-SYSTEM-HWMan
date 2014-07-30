@@ -1,0 +1,42 @@
+#ifndef wpcdrom_idl
+#define wpcdrom_idl
+
+#include "wpdevice.idl"
+
+interface M_WPDevCDRom;
+
+interface WPDevCDRom : WPDevice
+{
+
+#ifdef __SOMIDL__
+  implementation {
+    local;
+    majorversion = 1;
+    minorversion = 2;
+    filestem = wpcdrom;
+    metaclass = M_WPDevCDRom;
+    callstyle = oidl;
+    dllname = "pnp.dll";
+  };
+#endif /* __SOMIDL__ */
+};
+
+interface M_WPDevCDRom : M_WPDevice
+{
+  implementation {
+    local;
+    majorversion = 1;
+    minorversion = 2;
+    filestem = wpcdrom;
+    callstyle = oidl;
+    dllname = "pnp.dll";
+
+
+    /* Overridden class methods section */
+    wpclsInitData:      override;
+    wpclsQueryIconData: override;
+    wpclsQueryTitle:    override;
+    wpclsUnInitData:    override;
+  };
+};
+#endif  /* wpcdrom_idl */

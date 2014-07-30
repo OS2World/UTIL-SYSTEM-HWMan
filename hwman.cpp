@@ -21,16 +21,84 @@
 
 #define _RETAIL /* to completely eliminate the ...MethodDebug(...) debugging output to SOMOutCharRoutine (default:stdout) */
 #include "hwman.xih"
+#include "except.h"
 
+/*
+    it's a very good idea to always implement (and export via DEF file) the SOMInitModule function
+    that function will need to call the class creation routine for WPHwManagerEx
+    for our specific purpose we will also need to call the WPDevice class creation routine FIRST
+    because we need the WPDevice class object (_WPDevice) in the class init routine of the WPHwManagerEx class
+*/
 SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string className)
 {
     SOM_IgnoreWarning(majorVersion);
     SOM_IgnoreWarning(minorVersion);
     SOM_IgnoreWarning(className);
+
+    /* we have to load WPDevice class BEFORE wpclsInitData of WPHwManagerEx class
+        because wpclsInitData is invoked from WPHwManagerExNewClass and it utilizes
+        the WPDevice class object !!!
+    */
+    WPDeviceNewClass(WPDevice_MajorVersion,WPDevice_MinorVersion);
     WPHwManagerExNewClass(WPHwManagerEx_MajorVersion,WPHwManagerEx_MinorVersion);
     return;
 }
 
+void _LNK_CONV RefreshThread(void *p)
+{
+    WPHwManagerEx *somSelf = (WPHwManagerEx *)p;
+    WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
+    QMSG qmsg;
+
+    HAB hab = WinInitialize(0);
+    /*
+        if you want to use WPS/SOM methods from a secondary thread
+        you always need to create a message queue as several methods
+        require it, we save the handle in the instance data so that we can
+        use it from the main thread to post messages to it
+    */            
+    somThis->hmqRefreshThread = WinCreateMsgQueue(hab,0);
+    /*
+        when the system shuts down you do not want a WM_QUIT message
+        posted to the queue. Instead we will post a WM_QUIT message
+        ourselves when the last icon/details/tree view is closed
+    */
+    WinCancelShutdown(somThis->hmqRefreshThread,TRUE);
+    /*
+        start the periodic refresh timer
+    */
+    ULONG timerId = WinStartTimer(hab,NULLHANDLE,0UL,2000);
+    /*
+        we will keep refreshing the view with the given repetition
+        interval for as long as an icon/details/tree view is open,
+        once the last view of these types is closed, we will
+        receive a WM_QUIT message from the main thread which
+        will make "WinGetMsg" return false
+    */
+    while (WinGetMsg(hab,&qmsg,NULLHANDLE,0,0)) {
+       if ((qmsg.msg == WM_TIMER) && (SHORT1FROMMP(qmsg.mp1) == timerId)) {
+           somSelf->wpPopulate(0UL,NULL,FALSE);
+       } /* endif */
+    } /* endwhile */
+
+    /*
+        cleanup: stop the timer, destroy the message queue, reset the instance data
+    */
+    WinStopTimer(hab,NULLHANDLE,timerId);
+    WinDestroyMsgQueue(somThis->hmqRefreshThread);
+    somThis->hmqRefreshThread = NULLHANDLE;
+    WinTerminate(hab);
+    /*
+         at this point we would normally need to call wpUnlockObject on somSelf
+         to set back the lock count, but since we did not need to lock in
+         wpAddToObjUseList, we don't need to do it here either
+     */
+}
+
+/*
+    SOM spec 2.1 says to always override this routine for performance reasons
+    even if you don't change anything
+*/
 SOM_Scope void SOMLINK somDefaultInit(WPHwManagerEx *somSelf,
                                       som3InitCtrl* ctrl)
 {
@@ -47,7 +115,10 @@ SOM_Scope void SOMLINK somDefaultInit(WPHwManagerEx *somSelf,
      */
 }
 
-
+/*
+    SOM spec 2.1 says to always override this routine for performance reasons
+    even if you don't change anything
+*/
 SOM_Scope void SOMLINK somDestruct(WPHwManagerEx *somSelf, octet doFree,
                                    som3DestructCtrl* ctrl)
 {
@@ -65,104 +136,409 @@ SOM_Scope void SOMLINK somDestruct(WPHwManagerEx *somSelf, octet doFree,
 }
 
 char buf[8192];
+char devBuf[MAX_RM_NODE_SIZE];
+char parentdevBuf[MAX_RM_NODE_SIZE];
+char drvBuf[MAX_RM_NODE_SIZE];
+
+/*
+ *        wpDeleteFromObjUseList  :override;
+ */
 
 SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                                    PSZ pszPath, BOOL fFoldersOnly)
 {
     /* WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf); */
+    M_WPHwManagerExData *somMThis = M_WPHwManagerExGetData(_WPHwManagerEx);
+
     WPHwManagerExMethodDebug("WPHwManagerEx","wpPopulate");
 
-    if (WPHwManagerEx_parent_WPHwManager_wpPopulate(somSelf,
-                                                        ulReserved,
-                                                        pszPath,
-                                                        fFoldersOnly)) {
-        HANDLELIST Handles;
+    BOOL fRc = FALSE;   
+    WPDevice *obj=NULL,*nextObj=NULL,*newObj=NULL;
+    M_WPDevice *classObj=NULL;
+    APIRET rc;
+    RM_ENUMNODES_PARM Cmd={RM_COMMAND_PHYS};
+    PRM_ENUMNODES_DATA pData=(PRM_ENUMNODES_DATA)buf;
+    PRM_GETNODE_DATA pDevNode=(PRM_GETNODE_DATA)devBuf;
+    PRM_GETNODE_DATA pParentDevNode=(PRM_GETNODE_DATA)parentdevBuf;
+    PRM_GETNODE_DATA pDrvNode=(PRM_GETNODE_DATA)drvBuf;
+    PRESOURCELIST pResourceList;
+    PSZ pszTitle = NULL;
+    ULONG depth = 0UL;
+    ULONG i,j;
+    RMHANDLE parentHandles[10] = {0};
+    RMHANDLE uniqueHandle = 0;
+    RMHANDLE drvHandle = 0;
+    ULONG nodeType = 0;
+    USHORT baseType = 0;
+    USHORT subType = 0;
+    USHORT ifType = 0;
+    FDATE date;
+    char strBuffer[80];
+    BOOL fHide;
+    POINTL ptl={0};
+    APIRET rcFindSemSuccess;
+    APIRET rcFolderSemSuccess;
 
-        WPDevice *NextObj,*Obj;
-        PFN_GETUNIQUEID wpGetUniqueID;
-        PFN_GETNODEBASETYPE wpGetNodeBaseType;
+    /*
+        initial note: the resource manager (RM) defines driver, adapter and device plus a couple of other "classes" that are not
+        relevant here. The HW Manager uses a device class "WPDevice" plus some derived device classes like "WPDevCDRom", see
+        below. This is peculiar and makes it necessary to structurally force the RM driver, adapter and device "classes" attributes into the one "WPDevice" class
+        that HW manager uses. The net effect is that there will be a WPDevice object for a RM adapter with the relevant adapter parameters
+        "base class" and "subclass". On the other hand there will be a WPDevice object for a RM device but that object will only have room
+        for RM adapter parameters and not the RM device parameters. The compromise is to use the parent RM adapter's base class and subclass
+        parameters for a RM device in the corresponding WPDevice object ...
+    */            
 
-        PFN_WPREQUESTFOLDERMUTEXSEM wpRequestFolderMutexSem;
-        PFN_WPRELEASEFOLDERMUTEXSEM wpReleaseFolderMutexSem;
+    /* better add exception handling for whenever you request any of the semaphores */
+    /* if you trap before releasing the semaphore, the system will enter a catastrophic state ... */
+    /* gleaned from XWorkplace implementation */
+    TRY(exc)
+    /*
+        undocumented: you need to request the find mutex before you start populating a folder
+        gleaned this from the XWorkplace implementation
+    */
+    if ((rcFindSemSuccess = somMThis->wpRequestFindMutexSem(somSelf,1000)) == NO_ERROR) {
 
-        RMHANDLE rmHandle;
-        APIRET rc;
+        /*
+            first thing is to get the complete RM node list of all RM adapters and RM devices
+            that's what you get when you specify Cmd = RM_COMMAND_PHYS
+        */
+        memset(pData,0,sizeof(buf));
+        rc = RMEnumNodes(&Cmd,pData,sizeof(buf));
 
-        RM_ENUMNODES_PARM p;
-        PRM_ENUMNODES_DATA d=(PRM_ENUMNODES_DATA)buf;
-        ULONG i;
+        /* better add exception handling for whenever you request any of the semaphores */
+        /* if you trap before releasing the semaphore, the system will enter a catastrophic state ... */
+        /* gleaned from XWorkplace implementation, see except.h for the macro implementation */
+        TRY(exc2)
+        /*
+            undocumented: you need to request the folder mutex sem before you start to manipulate
+            (add, delete) the content list, gleaned this from the XWorkplace implementation
+        */
+        if ((rcFolderSemSuccess = somMThis->wpRequestFolderMutexSem(somSelf,1000)) == NO_ERROR) {
 
-        HPOINTER hWPDevBusPointer;
+            somSelf->wpModifyFldrFlags( FOI_POPULATEINPROGRESS,
+                                                  FOI_POPULATEINPROGRESS);
 
-        // these functions are not being made available via IDL
-        // resolve function address by name
-        wpRequestFolderMutexSem = (PFN_WPREQUESTFOLDERMUTEXSEM)somResolveByName(somSelf,"wpRequestFolderMutexSem");
-        wpReleaseFolderMutexSem = (PFN_WPRELEASEFOLDERMUTEXSEM)somResolveByName(somSelf,"wpReleaseFolderMutexSem");
+            /* first for every existing object we check if it (still) exists in the RM tree */
+            /* if not, we are going to remove it */
+            /* add. note: objects derived from WPTransient (like WPDevice) are always awake */
+            /* there is no need to awaken them, they will also never go dormant */
+            obj = (WPDevice *)somSelf->wpQueryContent(NULL,QC_FIRST);
+            while (obj) {
+               nextObj = (WPDevice *)somSelf->wpQueryContent(obj,QC_NEXT);
+               uniqueHandle = somMThis->wpGetUniqueID(obj);
+               for (i=0;i<pData->NumEntries;i++) {
+                  if (pData->NodeEntry[i].RMHandle == uniqueHandle) {
+                        /* "misuse" the upper bit of the depth field in order to track if this RM node has a matching object */
+                        pData->NodeEntry[i].Depth |= 0x80000000UL;
+                        break;
+                  } /* endif */
+               } /* endfor */
+               if (i >= pData->NumEntries) {
+                    /* no corresponding RM node could be found for this object, delete the object */
+                    obj->wpFree();
+               } /* endif */
+               obj = nextObj;
+            } /* endwhile */
 
-        if (somSelf->wpQueryFldrFlags() & FOI_POPULATEDWITHALL) {
 
-           if (wpRequestFolderMutexSem(somSelf,1000) == NO_ERROR) {
-               // get the default icon for the WPDevBus device object
-               hWPDevBusPointer = _WPDevBus->wpclsQueryIcon();
+            /* now we go through the RM nodes list again */
+            /* for every RM node where we did not yet find a corresponding object */
+            /* create a new WPDevice (or derived thereof) object */
+            /* unfortunately, the class tree of WPDevice and derived classes is brain dead in */
+            /* that we have to create objects of different class for different types of devices only because of differing icons */            
+            /* where it would have been much simpler to just adjust the icon of the object depending on device type ... */
+            for (i=0;i<pData->NumEntries;i++) {
+               depth = pData->NodeEntry[i].Depth & ~0x80000000UL;
+               parentHandles[depth] = pData->NodeEntry[i].RMHandle;
+               if (!(pData->NodeEntry[i].Depth & 0x80000000UL)) {
+                    pData->NodeEntry[i].Depth |= 0x80000000UL;
+                    uniqueHandle = pData->NodeEntry[i].RMHandle;
+                    rc = RMGetNodeInfo(uniqueHandle,pDevNode,sizeof(devBuf));
+                    nodeType = pDevNode->RMNode.NodeType;
+                    fHide = FALSE;
+                    switch(nodeType) {
+                        case RMTYPE_ADAPTER:
+                           pszTitle = pDevNode->RMNode.pAdapterNode->AdaptDescriptName;
+                           baseType = pDevNode->RMNode.pAdapterNode->BaseType;
+                           subType   = pDevNode->RMNode.pAdapterNode->SubType;
+                           ifType      = pDevNode->RMNode.pAdapterNode->InterfaceType;
+                           drvHandle  = pDevNode->RMNode.DriverHandle;
+                           classObj = NULL;
+                           break;
+                        case RMTYPE_DEVICE:
+                           pszTitle = pDevNode->RMNode.pDeviceNode->DevDescriptName;
+                           /* for a RM device node, "depth" will always be > 0 and the parent node will be an RM adapter node */
+                           rc = RMGetNodeInfo(parentHandles[depth-1],pParentDevNode,sizeof(parentdevBuf));
+                           /* for the next three lines, see initial note */
+                           baseType = pParentDevNode->RMNode.pAdapterNode->BaseType;
+                           subType   = pParentDevNode->RMNode.pAdapterNode->SubType;
+                           ifType      = pParentDevNode->RMNode.pAdapterNode->InterfaceType;
+                           drvHandle  = pDevNode->RMNode.DriverHandle;
+                           if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_CDROM) {
+                              classObj = (M_WPDevice *)_WPDevCDRom;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_WORM) {
+                              classObj = (M_WPDevice *)_WPDevCDRom;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_OPT_MEM) {
+                              classObj = (M_WPDevice *)_WPDevCDRom;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_DISK) {
+                              classObj = (M_WPDevice *)_WPDevHarddrive;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_TAPE) {
+                              classObj = (M_WPDevice *)_WPDevTape;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_SLOT) {
+                              classObj = (M_WPDevice *)_WPDevBus;
+                           } /* endif */
+                           else if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_UNKNOWN) {
+                              classObj = (M_WPDevice *)_WPDevice;
+                           } /* endif */
+                           else {
+                              classObj = NULL;
+                           }
+                           if (pDevNode->RMNode.pDeviceNode->DevType == DS_TYPE_PLANAR_CHIPSET) {
+                              fHide = TRUE;
+                           } /* endif */
+                           break;
+                        default: 
+                           pszTitle = NULL;
+                           baseType = AS_BASE_RESERVED;
+                           subType = AS_SUB_OTHER;
+                           ifType = AS_INTF_GENERIC;
+                           drvHandle  = pDevNode->RMNode.DriverHandle;
+                           classObj = NULL;
+                           break;
+                    }
+                    if (!classObj) {
+                       if (uniqueHandle == HANDLE_PHYS_TREE ) {
+                          classObj = _WPDevice;
+                       } /* endif */
+                       else if (uniqueHandle == HANDLE_DEFAULT_SYSBUS ) {
+                          classObj = (M_WPDevice *)_WPDevBus;
+                       } /* endif */
+                       else if (uniqueHandle == HANDLE_X_BUS) {
+                          classObj = (M_WPDevice *)_WPDevBus;
+                       } /* endif */
+                       else if (uniqueHandle == HANDLE_PCI_BUS) {
+                          classObj = (M_WPDevice *)_WPDevBus;
+                       } /* endif */
+                       else if (baseType == AS_BASE_BRIDGE) {
+                          classObj = (M_WPDevice *)_WPDevBus;
+                       } /* endif */
+                       else if (baseType == AS_BASE_DISPLAY) {
+                          classObj = (M_WPDevice *)_WPDevDisplay;
+                       }
+                       else if ((baseType == AS_BASE_INPUT) && (subType == AS_SUB_KBD)) {
+                          classObj = (M_WPDevice *)_WPDevKeyboard;
+                       }
+                       else if ((baseType == AS_BASE_INPUT) && (subType == AS_SUB_MOUSE)) {
+                          classObj = (M_WPDevice *)_WPDevMouse;
+                       }
+                       else if ((baseType == AS_BASE_COMM) && (subType == AS_SUB_PARALLEL)) {
+                          classObj = (M_WPDevice *)_WPDevParallel;
+                       }
+                       else if ((baseType == AS_BASE_COMM) && (subType == AS_SUB_SERIAL)) {
+                          classObj = (M_WPDevice *)_WPDevSerial;
+                       }
+                       else if ((baseType == AS_BASE_PERIPH) && (subType == AS_SUB_TIMER)) {
+                          classObj = (M_WPDevice *)_WPDevTimer;
+                       }
+                       else if ((baseType == AS_BASE_PERIPH) && (subType == AS_SUB_RTC)) {
+                          classObj = (M_WPDevice *)_WPDevTimer;
+                       }
+                       else if (baseType == AS_BASE_PERIPH) {
+                          classObj = (M_WPDevice *)_WPDevPeriph;
+                       }
+                       else if (baseType == AS_BASE_MEMORY) {
+                          classObj = (M_WPDevice *)_WPDevMemory;
+                       }
+                       else if (baseType == AS_BASE_BIOS_ROM) {
+                          classObj = (M_WPDevice *)_WPDevMemory;
+                       }
+                       else if ((baseType == AS_BASE_MSD) && (subType == AS_SUB_FLPY)) {
+                          classObj = (M_WPDevice *)_WPDevDiskette;
+                       }
+                       else if (baseType == AS_BASE_MSD) {
+                          classObj = (M_WPDevice *)_WPDevHarddrive;
+                       }
+                       else if ((baseType == AS_BASE_MMEDIA) && (subType == AS_SUB_MM_AUDIO)) {
+                          classObj = (M_WPDevice *)_WPDevAudio;
+                       }
+                       else if ((baseType == 0) && (subType == 0) && (ifType == 0)) {
+                          classObj = (M_WPDevice *)_WPDevCPU;
+                       }
+                       else {
+                          classObj = _WPDevice;
+                       }
+                    } /* endif */
 
-               // query the complete RM tree: it's kind of inefficient to subsequently
-               // compare every single object with every single node of the tree
-               // but I can see no other way without rewriting the whole HWManager
-               // class ...
-               // add. info: I tried "RMGetNodeInfo" and also "RMHandleToResourceHandleList"
-               // from RMINFO.DLL in order to detect invalid nodes but "RMGetNodeInfo" will
-               // lead to a Trap 3 in RESOURCE.SYS for an invalid node and
-               // "RMHandleToResourceHandleList" will return with RMRC_SUCCESS even for an invalid
-               // node, oh well ...
-               p.Command = RM_COMMAND_PHYS; 
-               memset(d,0,sizeof(buf));
-               rc = RMEnumNodes(&p,d,sizeof(buf));
+                    /*
+                        query the associated driver info here
+                        we need it later on to fill the relevant fields for the WPDevice
+                        settings notebook
+                    */
+                    rc = RMGetNodeInfo(drvHandle,pDrvNode,sizeof(drvBuf));
 
-               if (rc == RMRC_SUCCESS) {
-                  Obj = (WPDevice*)somSelf->wpQueryContent(NULL,QC_FIRST);
-                  if (somIsObj(Obj)) {
-                      // this function is not being made available via IDL
-                      // resolve function address by name
-                      wpGetUniqueID = (PFN_GETUNIQUEID)somResolveByName(Obj,"wpGetUniqueID");
-                      // this function is not being made available via IDL
-                      // resolve function address by name
-                      wpGetNodeBaseType = (PFN_GETNODEBASETYPE)somResolveByName(Obj,"wpGetNodeBaseType");
-   
-                      while(Obj) {
-                          NextObj = (WPDevice *)somSelf->wpQueryContent(Obj,QC_NEXT);
+                    /*
+                        this deals with a very special problem:
+                        in order to place it correctly into the hierarchy of a tree view,
+                        each device object has a unique ID (identical to the RM handle)
+                        and a parent ID (identical to the RM handle of its parent in the RM tree)
+                        you could set these values with the "wpSetUnique" and "wpSetParentID" methods
+                        however, these values are needed by "wpCnrInsertObject" in order to correctly
+                        set the parent of the PMINIRECORDCORE record (for tree views)
+                        if any view of HW Manager is already open during object creation,
+                        "wpCnrInsertObject" is called already during "wpclsNew" processing,
+                        therefore, calling "wpSetUnique" and "wpSetParentID" AFTER calling "wpclsNew" would be too late
+                        that's why it was obviously decided to make these values Setup strings
+                        so that these values are already available on object creation
+                        strictly speaking, UNIQUEID could have also been set after object creation
+                        but PARENTID is mandatory to be set already on object creation
+                        note: I found these setup strings in PNP.DLL by expanding the DLL (lxlite /X) and looking at it
+                        with a text editor ...
+                        while we are at it we also take the opportunity and set the icon position for icon view
+                        where 0,0 means "next available position"
+                    */
+                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;ICONPOS=0,0;",uniqueHandle,depth ? parentHandles[depth-1]: 0);
+                    /* there are RM device objects below PIC_0,PIC_1,DMA_CTRL_0,DMA_CTRL_1,TIMER */
+                    /* which should not show up in the HW manager tree */
+                    /* instead of skipping these, we just make them invisible which is easier to manage */
+                    /* as then the objects exist and can be checked for but they won't be visible in any view */
+                    if (fHide) {
+                       strcat(strBuffer,"NOTVISIBLE=YES;");
+                    } /* endif */
 
-                          // for bus devices (like Veit Kannegieser's PCIBUS.SNP additions for the AGP bus)
-                          // reset the icon to the icon of the WPDevBus device Object
-                          if (wpGetNodeBaseType(Obj) == AS_BASE_BRIDGE) {
-                             Obj->wpSetIcon(hWPDevBusPointer);
-                          } /* endif */
-      
-                          // here we compare the RMHandle of the current object with every handle
-                          // in the RMHandle tree, if we cannot find it in the RMHandle tree
-                          // then this object is no longer valid/relevant
-                          rmHandle = wpGetUniqueID(Obj);     // RM Handle
-                          for (i=0;i<d->NumEntries ;i++) {
-                             if (rmHandle == d->NodeEntry[i].RMHandle) {
-                                break;
-                             } /* endif */
-                          } /* endfor */
-                          if (i>=d->NumEntries) { // this is an invalid handle, remove the object
-                             Obj->wpFree();
-                          }
-                          else {                  // this is a valid handle, just unlock the object
-                             Obj->wpUnlockObject();
-                          } /* endif */
-                          Obj = NextObj;
-                      }
-                  }
-               }
-               wpReleaseFolderMutexSem(somSelf);
-           }
+                    /* wpclsNew will also add to the folder content list (wpAddToContent is called) */
+                    /* wpclsNew will also call wpCnrInsertObject on the new object for every view currently open */
+                    newObj= (WPDevice *)classObj->wpclsNew(pszTitle,strBuffer,somSelf,TRUE);
+                    somMThis->wpSetNodeType(newObj,nodeType);
+                    somMThis->wpSetNodeBaseType(newObj,baseType);
+                    somMThis->wpSetNodeSubType(newObj,subType);
+                    somMThis->wpSetDeviceDriver(newObj,pDrvNode->RMNode.pDriverNode->DrvrName);
+                    somMThis->wpSetDDName(newObj,pDrvNode->RMNode.pDriverNode->DrvrDescript);
+                    somMThis->wpSetDDVendor(newObj,pDrvNode->RMNode.pDriverNode->VendorName);
+                    sprintf(strBuffer,"%u.%u",pDrvNode->RMNode.pDriverNode->MajorVer,pDrvNode->RMNode.pDriverNode->MinorVer);
+                    somMThis->wpSetDDVersion(newObj,strBuffer);
+                    date.year   = pDrvNode->RMNode.pDriverNode->Date.Year - 1980;
+                    date.month = pDrvNode->RMNode.pDriverNode->Date.Month;
+                    date.day    = pDrvNode->RMNode.pDriverNode->Date.Day;
+                    somMThis->wpSetDDDate(newObj,&date);
+
+                    /*
+                        finally, we go through the RM resource list for this RM node and add all found resources
+                        to the corresponding device object
+                    */
+                    pResourceList = pDevNode->RMNode.pResourceList;
+                    if (pResourceList) {
+                       for (j=0;j<pResourceList->Count;j++ ) {
+                          switch (pResourceList->Resource[j].ResourceType) {
+                              case RS_TYPE_IO:
+                                 somMThis->wpAddIOResource(newObj,&pResourceList->Resource[j].IOResource);
+                                 break;
+                              case RS_TYPE_IRQ:
+                                 somMThis->wpAddIRQResource(newObj,&pResourceList->Resource[j].IRQResource);
+                                 break;
+                              case RS_TYPE_MEM:
+                                 somMThis->wpAddMemoryResource(newObj,&pResourceList->Resource[j].MEMResource);
+                                 break;
+                              case RS_TYPE_DMA:
+                                 somMThis->wpAddDMAResource(newObj,&pResourceList->Resource[j].DMAResource);
+                                 break;
+                          } /* endswitch */
+                       } /* endfor */
+                       /*
+                           the resource info will be shown in the details view, that's why we have to invoke the following
+                           method call in order to properly update any details view
+                       */
+                       newObj->wpCnrRefreshDetails();
+                    }
+               } /* endif */
+            } /* endfor */
+
+            /*
+                this will help icon view to properly place the icons in the view in icon view.
+                0,0 means: "put at next available position"
+            */
+            somSelf->wpSetNextIconPos(&ptl);
+
+            /*
+                the wpPopulate implementation of WPFolder does a whole bunch of undocumented
+                things so that view update on folder population will actually work
+                WPHwManager inherits from WPFolder but we cannot call WPHwManager's wpPopulate
+                method because we want to replace part of its implementation with our own
+                that's why we cast our object to WPFolder in order to call the WPFolder implemenation
+                of wpPopulate
+                after we have called WPFolders implementation of wpPopulate we cast back to our own
+                class so that we can continue processing as if nothing has happened
+            */
+            somSelf->somCastObj(_WPFolder);
+            fRc = somSelf->wpPopulate(ulReserved,pszPath,fFoldersOnly);
+            somSelf->somResetObj();
+    
+            somSelf->wpModifyFldrFlags(FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS);
         }
-        return TRUE;
-    }
+        ENDTRY(exc2);
 
-    return FALSE;
+        if (rcFolderSemSuccess == NO_ERROR) {
+            somMThis->wpReleaseFolderMutexSem(somSelf);
+        } /* endif */
+    }
+    ENDTRY(exc);
+
+    if (rcFindSemSuccess == NO_ERROR) {
+        somMThis->wpReleaseFindMutexSem(somSelf);
+    } /* endif */
+    return fRc;
+}
+
+
+
+SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf)
+{
+    WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
+    WPHwManagerExMethodDebug("WPHwManagerEx","wpInitData");
+
+    WPHwManagerEx_parent_WPHwManager_wpInitData(somSelf);
+
+    somThis->hmqRefreshThread = NULLHANDLE;
+}
+
+SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf, 
+                                          PUSEITEM pUseItem)
+{
+    /* WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf); */
+    WPHwManagerExMethodDebug("WPHwManagerEx","wpAddToObjUseList");
+
+    if (pUseItem->type == USAGE_OPENVIEW && !somSelf->wpFindViewItem(VIEW_CONTENTS | VIEW_DETAILS | VIEW_TREE,NULL)) {
+       /*
+            at this point we would normally need to call wpLockObject on somSelf
+            to ensure that it does not go dormant when it is used asychronously
+            from the secondary thread. However, when a view opens, the object
+            is locked once anyways, therefore there is no need to do it
+        */
+       _beginthread(RefreshThread,NULL,0x8000,somSelf);
+    } /* endif */
+
+    return (WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf, 
+                                                               pUseItem));
+}
+
+SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf, 
+                                               PUSEITEM pUseItem)
+{
+    WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
+    WPHwManagerExMethodDebug("WPHwManagerEx","wpDeleteFromObjUseList");
+
+    BOOL fRC = (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf, 
+                                                                    pUseItem));
+
+    if (pUseItem->type == USAGE_OPENVIEW && !somSelf->wpFindViewItem(VIEW_CONTENTS | VIEW_DETAILS | VIEW_TREE,NULL)) {
+       WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
+    } /* endif */
+    return fRC;
 }
 
 
@@ -174,6 +550,8 @@ SOM_Scope ULONG  SOMLINK wpclsQueryStyle(M_WPHwManagerEx *somSelf)
     M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsQueryStyle");
 
     ret =  (M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle(somSelf));
+    /* we better make sure you cannot create a template from the HW manager object */
+    /* in the templates folder. That would be completely useless and just confuse users ... */
     ret |= CLSSTYLE_DONTTEMPLATE;
     return ret;
 }
@@ -185,4 +563,116 @@ SOM_Scope PSZ  SOMLINK wpclsQueryTitle(M_WPHwManagerEx *somSelf)
 
     return "Hardware Manager Extension";
 }
-      
+
+SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf)
+{
+    /*
+        look at the SOM specification for SOM 2.1 how you can easily create static
+        somIDs from static text strings
+        another (more resource consuming) alternative would be to call somIdFromString()
+        but we take the easy way out
+    */
+    static char *mthd1 = "wpSetUniqueID";
+    static char *mthd2 = "wpSetParentID";
+    static char *mthd3 = "wpSetNodeType";
+    static char *mthd4 = "wpSetNodeBaseType";
+    static char *mthd5 = "wpSetNodeSubType";
+    static char *mthd6 = "wpSetDDDate";
+    static char *mthd7 = "wpSetDeviceDriver";
+    static char *mthd8 = "wpSetDDName";
+    static char *mthd9 = "wpSetDDVendor";
+    static char *mthd10 = "wpSetDDVersion";
+    static char *mthd11 = "wpAddIRQResource";
+    static char *mthd12 = "wpAddDMAResource";
+    static char *mthd13 = "wpAddIOResource";
+    static char *mthd14 = "wpAddMemoryResource";
+    static char *mthd15 = "wpGetUniqueID";
+    static char *mthd16 = "wpRequestFolderMutexSem";
+    static char *mthd17 = "wpReleaseFolderMutexSem";
+    static char *mthd18 = "wpRequestFindMutexSem";
+    static char *mthd19 = "wpReleaseFindMutexSem";
+
+    static somId theId1 = &mthd1;
+    static somId theId2 = &mthd2;
+    static somId theId3 = &mthd3;
+    static somId theId4 = &mthd4;
+    static somId theId5 = &mthd5;
+    static somId theId6 = &mthd6;
+    static somId theId7 = &mthd7;
+    static somId theId8 = &mthd8;
+    static somId theId9 = &mthd9;
+    static somId theId10 = &mthd10;
+    static somId theId11 = &mthd11;
+    static somId theId12 = &mthd12;
+    static somId theId13 = &mthd13;
+    static somId theId14 = &mthd14;
+    static somId theId15 = &mthd15;
+    static somId theId16 = &mthd16;
+    static somId theId17 = &mthd17;
+    static somId theId18 = &mthd18;
+    static somId theId19 = &mthd19;
+
+    M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf);
+    M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsInitData");
+
+    M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData(somSelf);
+
+    /* lock the WPDevice class object once so that the WPDevice class DLL (PNP.DLL) will not get unloaded prematurely */
+    _WPDevice->wpclsIncUsage();
+
+    /*
+        what we do here is resolve a couple of WPDevice methods by name because they are not publicly
+        exported via IDL (but we need them, see wpPopulate).
+        Because we do this here, we don't have to do it again and again whenever we need them.
+        We also save away the function pointers in the WPHwManagerEx class OBJECT
+        and NOT in the individual WPHwManagerEx class INSTANCE(S) as the class object is the central
+        place to store things that are useful to ALL instances of the WPHwManagerEx class
+        note: all these method names were found by using XWorkplace's WPS class list browser.
+        The method signatures (parameters, return value) were found by using Theseus memory view
+        (and it's disassembling capabilities) and some good portion of guesswork
+    */
+    somThis->wpSetUniqueID = (PFN_SETUNIQUEID)_WPDevice->somFindSMethod(theId1);
+    somThis->wpSetParentID = (PFN_SETPARENTID)_WPDevice->somFindSMethod(theId2);
+    somThis->wpSetNodeType = (PFN_SETNODETYPE)_WPDevice->somFindSMethod(theId3);
+    somThis->wpSetNodeBaseType = (PFN_SETNODEBASETYPE)_WPDevice->somFindSMethod(theId4);
+    somThis->wpSetNodeSubType = (PFN_SETNODESUBTYPE)_WPDevice->somFindSMethod(theId5);
+    somThis->wpSetDDDate = (PFN_SETDDDATE)_WPDevice->somFindSMethod(theId6);
+    somThis->wpSetDeviceDriver = (PFN_SETDEVICEDRIVER)_WPDevice->somFindSMethod(theId7);
+    somThis->wpSetDDName = (PFN_SETDDNAME)_WPDevice->somFindSMethod(theId8);
+    somThis->wpSetDDVendor = (PFN_SETDDVENDOR)_WPDevice->somFindSMethod(theId9);
+    somThis->wpSetDDVersion = (PFN_SETDDVERSION)_WPDevice->somFindSMethod(theId10);
+    somThis->wpAddIRQResource = (PFN_ADDIRQRESOURCE)_WPDevice->somFindSMethod(theId11);
+    somThis->wpAddDMAResource = (PFN_ADDDMARESOURCE)_WPDevice->somFindSMethod(theId12);
+    somThis->wpAddIOResource = (PFN_ADDIORESOURCE)_WPDevice->somFindSMethod(theId13);
+    somThis->wpAddMemoryResource = (PFN_ADDMEMORYRESOURCE)_WPDevice->somFindSMethod(theId14);
+    somThis->wpGetUniqueID = (PFN_GETUNIQUEID)_WPDevice->somFindSMethod(theId15);
+
+    somThis->wpRequestFolderMutexSem = (PFN_WPREQUESTFOLDERMUTEXSEM)_WPHwManagerEx->somFindSMethod(theId16);
+    somThis->wpReleaseFolderMutexSem = (PFN_WPRELEASEFOLDERMUTEXSEM)_WPHwManagerEx->somFindSMethod(theId17);
+    somThis->wpRequestFindMutexSem = (PFN_WPREQUESTFINDMUTEXSEM)_WPHwManagerEx->somFindSMethod(theId18);
+    somThis->wpReleaseFindMutexSem = (PFN_WPRELEASEFINDMUTEXSEM )_WPHwManagerEx->somFindSMethod(theId19);
+
+}
+
+SOM_Scope void  SOMLINK wpclsUnInitData(M_WPHwManagerEx *somSelf)
+{
+    /* M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf); */
+    M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsUnInitData");
+
+    M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData(somSelf);
+
+    /* unlock the WPDevice class object once so that the class DLL (PNP.DLL) can be unloaded */
+    _WPDevice->wpclsDecUsage();
+}
+
+
+SOM_Scope ULONG  SOMLINK wpclsQueryDefaultView(M_WPHwManagerEx *somSelf)
+{
+    M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf);
+    M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsQueryDefaultView");
+
+    /* we want each created instance of the HW Manager to open in tree view */
+    /* it's the only view that actually makes sense ... */    
+    return OPEN_TREE;
+}
+

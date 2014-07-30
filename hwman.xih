@@ -35,21 +35,73 @@
  * Passthru lines: File: "C.xih", "after"
  */
 
+#include <wpaudio.xh>
 #include <wpbus.xh>
+#include <wpcdrom.xh>
+#include <wpcpu.xh>
+#include <wpdskett.xh>
+#include <wpdisply.xh>
+#include <wphrddrv.xh>
+#include <wpkeybdd.xh>
+#include <wpmem.xh>
+#include <wpmoused.xh>
+#include <wpparal.xh>
+#include <wpperiph.xh>
+#include <wpserial.xh>
+#include <wptape.xh>
+#include <wptimer.xh>
 #include <stdio.h>
 #include <rmcalls.h>
 typedef RMHANDLE (SOMLINK FN_GETUNIQUEID)(WPDevice *somSelf);
 typedef FN_GETUNIQUEID *PFN_GETUNIQUEID;
 typedef RMHANDLE (SOMLINK FN_GETPARENTID)(WPDevice *somSelf);
 typedef FN_GETPARENTID *PFN_GETPARENTID;
+typedef ULONG (SOMLINK FN_GETNODETYPE)(WPDevice *somSelf);
+typedef FN_GETNODETYPE *PFN_GETNODETYPE;
 typedef USHORT (SOMLINK FN_GETNODEBASETYPE)(WPDevice *somSelf);
 typedef FN_GETNODEBASETYPE *PFN_GETNODEBASETYPE;
+typedef USHORT (SOMLINK FN_GETNODESUBTYPE)(WPDevice *somSelf);
+typedef FN_GETNODESUBTYPE *PFN_GETNODESUBTYPE;
+typedef VOID (SOMLINK FN_SETUNIQUEID)(WPDevice *somSelf,RMHANDLE rmHandle);
+typedef FN_SETUNIQUEID *PFN_SETUNIQUEID;
+typedef VOID (SOMLINK FN_SETPARENTID)(WPDevice *somSelf,RMHANDLE rmHandle);
+typedef FN_SETPARENTID *PFN_SETPARENTID;
+typedef VOID (SOMLINK FN_SETNODETYPE)(WPDevice *somSelf,ULONG nodeType);
+typedef FN_SETNODETYPE *PFN_SETNODETYPE;
+typedef VOID (SOMLINK FN_SETNODEBASETYPE)(WPDevice *somSelf,USHORT nodeBaseType);
+typedef FN_SETNODEBASETYPE *PFN_SETNODEBASETYPE;
+typedef VOID (SOMLINK FN_SETNODESUBTYPE)(WPDevice *somSelf,USHORT nodeSubType);
+typedef FN_SETNODESUBTYPE *PFN_SETNODESUBTYPE;
+typedef VOID (SOMLINK FN_SETDDDATE)(WPDevice *somSelf,PFDATE pDate);
+typedef FN_SETDDDATE *PFN_SETDDDATE;
+typedef VOID (SOMLINK FN_SETDEVICEDRIVER)(WPDevice *somSelf,PSZ pString);
+typedef FN_SETDEVICEDRIVER *PFN_SETDEVICEDRIVER;
+typedef VOID (SOMLINK FN_SETDDNAME)(WPDevice *somSelf,PSZ pString);
+typedef FN_SETDDNAME *PFN_SETDDNAME;
+typedef VOID (SOMLINK FN_SETDDVENDOR)(WPDevice *somSelf,PSZ pString);
+typedef FN_SETDDVENDOR *PFN_SETDDVENDOR;
+typedef VOID (SOMLINK FN_SETDDVERSION)(WPDevice *somSelf,PSZ pString);
+typedef FN_SETDDVERSION *PFN_SETDDVERSION;
+typedef VOID (SOMLINK FN_ADDIRQRESOURCE)(WPDevice *somSelf,PIRQRESOURCE pIRQResource);
+typedef FN_ADDIRQRESOURCE *PFN_ADDIRQRESOURCE;
+typedef VOID (SOMLINK FN_ADDDMARESOURCE)(WPDevice *somSelf,PDMARESOURCE pDMAResource);
+typedef FN_ADDDMARESOURCE *PFN_ADDDMARESOURCE;
+typedef VOID (SOMLINK FN_ADDIORESOURCE)(WPDevice *somSelf,PIORESOURCE pIOResource);
+typedef FN_ADDIORESOURCE *PFN_ADDIORESOURCE;
+typedef VOID (SOMLINK FN_ADDMEMORYRESOURCE)(WPDevice *somSelf,PMEMRESOURCE pMemResource);
+typedef FN_ADDMEMORYRESOURCE *PFN_ADDMEMORYRESOURCE;
+typedef VOID (SOMLINK FN_SETIOPORTS)(WPDevice *somSelf,PSZ pszResource);
+typedef FN_SETIOPORTS *PFN_SETIOPORTS;
 typedef BOOL (SOMLINK FN_WPASSERTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);
 typedef FN_WPASSERTFOLDERMUTEXSEM *PFN_WPASSERTFOLDERMUTEXSEM;
 typedef ULONG (SOMLINK FN_WPREQUESTFOLDERMUTEXSEM)(WPHwManagerEx *somSelf,ULONG ulTimeOut);
 typedef FN_WPREQUESTFOLDERMUTEXSEM *PFN_WPREQUESTFOLDERMUTEXSEM;
 typedef ULONG (SOMLINK FN_WPRELEASEFOLDERMUTEXSEM)(WPHwManagerEx *somSelf);
 typedef FN_WPRELEASEFOLDERMUTEXSEM *PFN_WPRELEASEFOLDERMUTEXSEM;
+typedef ULONG (SOMLINK FN_WPREQUESTFINDMUTEXSEM)(WPHwManagerEx *somSelf,ULONG ulTimeOut);
+typedef FN_WPREQUESTFINDMUTEXSEM *PFN_WPREQUESTFINDMUTEXSEM;
+typedef ULONG (SOMLINK FN_WPRELEASEFINDMUTEXSEM)(WPHwManagerEx *somSelf);
+typedef FN_WPRELEASEFINDMUTEXSEM *PFN_WPRELEASEFINDMUTEXSEM;
 //add missing definition for RMEnumNodes: it was determined experimentally ...
 APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USHORT dLen);
 
@@ -59,11 +111,29 @@ APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USH
 /*
  * -- Instance Data
  */
-typedef void WPHwManagerExData;
+typedef struct {
+	HMQ hmqRefreshThread;
+} WPHwManagerExData;
 
 /*
- * This class introduces no instance data, so no GetData macro is provided
+ * -- Getdata Macro
  */
+
+/*
+ * -- This emitter treats Data Tokens as Thunks by default.
+ * -- Use the sc modifier "nothunks" to override this default.
+ */
+typedef WPHwManagerExData* (SOMLINK * somTD_WPHwManagerEx_DataThunk)(void*);
+#define WPHwManagerExGetData(somSelf) \
+   (((somTD_WPHwManagerEx_DataThunk)(WPHwManagerExCClassData.instanceDataToken))(somSelf))
+
+/*
+ * -- Instance Data Access Macros for use in Method Procedures
+ */
+#ifdef VARIABLE_MACROS
+  #define _hmqRefreshThread (somThis->hmqRefreshThread)
+#endif
+
 
 /*
  * -- Primary Implementation File Support
@@ -329,6 +399,9 @@ typedef void WPHwManagerExData;
   #define _somDefaultInit somSelf->somDefaultInit
   #define _somDestruct somSelf->somDestruct
   #define _wpPopulate somSelf->wpPopulate
+  #define _wpInitData somSelf->wpInitData
+  #define _wpAddToObjUseList somSelf->wpAddToObjUseList
+  #define _wpDeleteFromObjUseList somSelf->wpDeleteFromObjUseList
 #endif
 
 
@@ -416,6 +489,127 @@ static somMethodProc* WPHwManagerEx_parent_WPHwManager_wpPopulate_resolved;
    WPHwManagerEx_parent_WPHwManager_wpPopulate(somSelf,ulReserved,pszPath,fFoldersOnly))
 
 /*
+ * Overridden method: wpInitData
+ */
+SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf);
+static char *somMN_WPHwManagerExwpInitData = "WPObject::wpInitData";
+static somId somId_WPHwManagerExwpInitData = &somMN_WPHwManagerExwpInitData;
+#ifdef somId_wpInitData
+#undef somId_wpInitData
+#else
+#define somId_wpInitData somId_WPHwManagerExwpInitData
+#endif
+typedef void   SOMLINK somTP_xih_WPHwManagerEx_wpInitData(WPHwManagerEx *somSelf);
+typedef somTP_xih_WPHwManagerEx_wpInitData *somTD_xih_WPHwManagerEx_wpInitData;
+/* define the parent method call macro */
+static somMethodProc* WPHwManagerEx_parent_WPHwManager_wpInitData_resolved;
+#define WPHwManagerEx_parent_WPHwManager_wpInitData(somSelf) \
+  ((( somTD_xih_WPHwManagerEx_wpInitData ) \
+      WPHwManagerEx_parent_WPHwManager_wpInitData_resolved) \
+	(somSelf))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpInitData
+  #ifdef parent_wpInitData
+    #define SOMGD_pmc_parent_wpInitData
+    #undef parent_wpInitData
+  #else
+#define parent_wpInitData WPHwManagerEx_parent_WPHwManager_wpInitData
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_WPHwManager_wpInitData
+  #ifdef parent_WPHwManager_wpInitData
+    #define SOMGD_pmc_parent_WPHwManager_wpInitData
+    #undef parent_WPHwManager_wpInitData
+  #else
+    #define parent_WPHwManager_wpInitData WPHwManagerEx_parent_WPHwManager_wpInitData
+  #endif
+#endif
+#define WPHwManagerEx_parents_wpInitData(somSelf) (\
+   WPHwManagerEx_parent_WPHwManager_wpInitData(somSelf))
+
+/*
+ * Overridden method: wpAddToObjUseList
+ */
+SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf,
+		PUSEITEM pUseItem);
+static char *somMN_WPHwManagerExwpAddToObjUseList = "WPObject::wpAddToObjUseList";
+static somId somId_WPHwManagerExwpAddToObjUseList = &somMN_WPHwManagerExwpAddToObjUseList;
+#ifdef somId_wpAddToObjUseList
+#undef somId_wpAddToObjUseList
+#else
+#define somId_wpAddToObjUseList somId_WPHwManagerExwpAddToObjUseList
+#endif
+typedef BOOL   SOMLINK somTP_xih_WPHwManagerEx_wpAddToObjUseList(WPHwManagerEx *somSelf, 
+		PUSEITEM pUseItem);
+typedef somTP_xih_WPHwManagerEx_wpAddToObjUseList *somTD_xih_WPHwManagerEx_wpAddToObjUseList;
+/* define the parent method call macro */
+static somMethodProc* WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList_resolved;
+#define WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf,pUseItem) \
+  ((( somTD_xih_WPHwManagerEx_wpAddToObjUseList ) \
+      WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList_resolved) \
+	(somSelf,pUseItem))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpAddToObjUseList
+  #ifdef parent_wpAddToObjUseList
+    #define SOMGD_pmc_parent_wpAddToObjUseList
+    #undef parent_wpAddToObjUseList
+  #else
+#define parent_wpAddToObjUseList WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_WPHwManager_wpAddToObjUseList
+  #ifdef parent_WPHwManager_wpAddToObjUseList
+    #define SOMGD_pmc_parent_WPHwManager_wpAddToObjUseList
+    #undef parent_WPHwManager_wpAddToObjUseList
+  #else
+    #define parent_WPHwManager_wpAddToObjUseList WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList
+  #endif
+#endif
+#define WPHwManagerEx_parents_wpAddToObjUseList(somSelf,pUseItem) (\
+   WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf,pUseItem))
+
+/*
+ * Overridden method: wpDeleteFromObjUseList
+ */
+SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
+		PUSEITEM pUseItem);
+static char *somMN_WPHwManagerExwpDeleteFromObjUseList = "WPObject::wpDeleteFromObjUseList";
+static somId somId_WPHwManagerExwpDeleteFromObjUseList = &somMN_WPHwManagerExwpDeleteFromObjUseList;
+#ifdef somId_wpDeleteFromObjUseList
+#undef somId_wpDeleteFromObjUseList
+#else
+#define somId_wpDeleteFromObjUseList somId_WPHwManagerExwpDeleteFromObjUseList
+#endif
+typedef BOOL   SOMLINK somTP_xih_WPHwManagerEx_wpDeleteFromObjUseList(WPHwManagerEx *somSelf, 
+		PUSEITEM pUseItem);
+typedef somTP_xih_WPHwManagerEx_wpDeleteFromObjUseList *somTD_xih_WPHwManagerEx_wpDeleteFromObjUseList;
+/* define the parent method call macro */
+static somMethodProc* WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList_resolved;
+#define WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf,pUseItem) \
+  ((( somTD_xih_WPHwManagerEx_wpDeleteFromObjUseList ) \
+      WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList_resolved) \
+	(somSelf,pUseItem))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpDeleteFromObjUseList
+  #ifdef parent_wpDeleteFromObjUseList
+    #define SOMGD_pmc_parent_wpDeleteFromObjUseList
+    #undef parent_wpDeleteFromObjUseList
+  #else
+#define parent_wpDeleteFromObjUseList WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_WPHwManager_wpDeleteFromObjUseList
+  #ifdef parent_WPHwManager_wpDeleteFromObjUseList
+    #define SOMGD_pmc_parent_WPHwManager_wpDeleteFromObjUseList
+    #undef parent_WPHwManager_wpDeleteFromObjUseList
+  #else
+    #define parent_WPHwManager_wpDeleteFromObjUseList WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList
+  #endif
+#endif
+#define WPHwManagerEx_parents_wpDeleteFromObjUseList(somSelf,pUseItem) (\
+   WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf,pUseItem))
+
+/*
  * -- Routines and Structures to create the class object
  */
 
@@ -430,6 +624,12 @@ static somOverrideMethod_t WPHwManagerExOM[] = {
          (somMethodProc *) somDestruct  },
     {    &somId_WPHwManagerExwpPopulate,
          (somMethodProc *) wpPopulate  },
+    {    &somId_WPHwManagerExwpInitData,
+         (somMethodProc *) wpInitData  },
+    {    &somId_WPHwManagerExwpAddToObjUseList,
+         (somMethodProc *) wpAddToObjUseList  },
+    {    &somId_WPHwManagerExwpDeleteFromObjUseList,
+         (somMethodProc *) wpDeleteFromObjUseList  },
 };
 
 
@@ -445,9 +645,9 @@ static somId somPCWPHwManagerEx[] = {
 };
 
 static somStaticClassInfo WPHwManagerExSCI = {
-    4, 0, 3, 0, 0, 0, /* layout version 4 */ 
+    4, 0, 6, 0, 0, 0, /* layout version 4 */ 
     WPHwManagerEx_MajorVersion, WPHwManagerEx_MinorVersion,
-    0, WPHwManagerEx_MaxNoMethods, 1,
+    sizeof(WPHwManagerExData), WPHwManagerEx_MaxNoMethods, 1,
     &somCN_WPHwManagerEx,
     &somEMC_WPHwManagerEx, 0,
     somPCWPHwManagerEx,
@@ -459,7 +659,7 @@ static somStaticClassInfo WPHwManagerExSCI = {
    (somProcMethods_t *) NULL,
     (somVarargsFuncs_t *) NULL,
     (somTP_somClassInitFunc *) NULL,
-    0, /* type code alignment */
+    4, /* type code alignment */
     -1, /* use parents as DirectInitClasses */
     0, /* no explicit DirectInitClasses */
     0, /* number of general methods */
@@ -493,6 +693,12 @@ M_WPHwManagerEx * SOMLINK WPHwManagerExNewClass (integer4 somtmajorVersion,
     /* Explicit metaclass, so get it */ 
     M_WPHwManagerExNewClass(M_WPHwManagerEx_MajorVersion,M_WPHwManagerEx_MinorVersion);	/* static reference */
     result = (M_WPHwManagerEx*)((void*)somBuildClass(0xFFFFFFFF,&WPHwManagerExSCI, somtmajorVersion, somtminorVersion));
+    WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList_resolved = 
+	somParentNumResolve(WPHwManagerExCClassData.parentMtab, 1, WPObjectClassData.wpDeleteFromObjUseList);
+    WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList_resolved = 
+	somParentNumResolve(WPHwManagerExCClassData.parentMtab, 1, WPObjectClassData.wpAddToObjUseList);
+    WPHwManagerEx_parent_WPHwManager_wpInitData_resolved = 
+	somParentNumResolve(WPHwManagerExCClassData.parentMtab, 1, WPObjectClassData.wpInitData);
     WPHwManagerEx_parent_WPHwManager_wpPopulate_resolved = 
 	somParentNumResolve(WPHwManagerExCClassData.parentMtab, 1, WPFolderClassData.wpPopulate);
     return result;
@@ -511,6 +717,7 @@ M_WPHwManagerEx * SOMLINK WPHwManagerExNewClass (integer4 somtmajorVersion,
       memcpy(ctrl,&(((somParentMtabStructPtr)WPHwManagerExCClassData.parentMtab)->initCtrl),sizeof(somInitCtrl)); \
    } \
    myMask = ctrl->mask; \
+   somThis = (WPHwManagerExData*)((char*)somSelf + ctrl->info->dataOffset);\
    ctrl->info = (somInitInfo*)(ctrl->infoSize + (char*)(ctrl->info)); \
    ctrl->mask += 1;
 #define WPHwManagerEx_BeginDestructor \
@@ -518,6 +725,7 @@ M_WPHwManagerEx * SOMLINK WPHwManagerExNewClass (integer4 somtmajorVersion,
       ctrl = &globalCtrl; \
       memcpy(ctrl,&(((somParentMtabStructPtr)WPHwManagerExCClassData.parentMtab)->destructCtrl),sizeof(somDestructCtrl)); \
    } \
+   somThis = (WPHwManagerExData*)((char*)somSelf + ctrl->info->dataOffset);\
    myMask = ctrl->mask; 
 #define WPHwManagerEx_EndDestructor \
    ctrl->info = (somDestructInfo*)(ctrl->infoSize + (char*)(ctrl->info)); \
@@ -574,11 +782,65 @@ M_WPHwManagerEx * SOMLINK WPHwManagerExNewClass (integer4 somtmajorVersion,
 /*
  * -- Instance Data
  */
-typedef void M_WPHwManagerExData;
+typedef struct {
+	PFN_SETUNIQUEID wpSetUniqueID;
+	PFN_SETPARENTID wpSetParentID;
+	PFN_SETNODETYPE wpSetNodeType;
+	PFN_SETNODEBASETYPE wpSetNodeBaseType;
+	PFN_SETNODESUBTYPE wpSetNodeSubType;
+	PFN_SETDDDATE wpSetDDDate;
+	PFN_SETDEVICEDRIVER wpSetDeviceDriver;
+	PFN_SETDDNAME wpSetDDName;
+	PFN_SETDDVENDOR wpSetDDVendor;
+	PFN_SETDDVERSION wpSetDDVersion;
+	PFN_ADDIRQRESOURCE wpAddIRQResource;
+	PFN_ADDDMARESOURCE wpAddDMAResource;
+	PFN_ADDIORESOURCE wpAddIOResource;
+	PFN_ADDMEMORYRESOURCE wpAddMemoryResource;
+	PFN_GETUNIQUEID wpGetUniqueID;
+	PFN_WPREQUESTFOLDERMUTEXSEM wpRequestFolderMutexSem;
+	PFN_WPRELEASEFOLDERMUTEXSEM wpReleaseFolderMutexSem;
+	PFN_WPREQUESTFINDMUTEXSEM wpRequestFindMutexSem;
+	PFN_WPRELEASEFINDMUTEXSEM wpReleaseFindMutexSem;
+} M_WPHwManagerExData;
 
 /*
- * This class introduces no instance data, so no GetData macro is provided
+ * -- Getdata Macro
  */
+
+/*
+ * -- This emitter treats Data Tokens as Thunks by default.
+ * -- Use the sc modifier "nothunks" to override this default.
+ */
+typedef M_WPHwManagerExData* (SOMLINK * somTD_M_WPHwManagerEx_DataThunk)(void*);
+#define M_WPHwManagerExGetData(somSelf) \
+   (((somTD_M_WPHwManagerEx_DataThunk)(M_WPHwManagerExCClassData.instanceDataToken))(somSelf))
+
+/*
+ * -- Instance Data Access Macros for use in Method Procedures
+ */
+#ifdef VARIABLE_MACROS
+  #define _wpSetUniqueID (somThis->wpSetUniqueID)
+  #define _wpSetParentID (somThis->wpSetParentID)
+  #define _wpSetNodeType (somThis->wpSetNodeType)
+  #define _wpSetNodeBaseType (somThis->wpSetNodeBaseType)
+  #define _wpSetNodeSubType (somThis->wpSetNodeSubType)
+  #define _wpSetDDDate (somThis->wpSetDDDate)
+  #define _wpSetDeviceDriver (somThis->wpSetDeviceDriver)
+  #define _wpSetDDName (somThis->wpSetDDName)
+  #define _wpSetDDVendor (somThis->wpSetDDVendor)
+  #define _wpSetDDVersion (somThis->wpSetDDVersion)
+  #define _wpAddIRQResource (somThis->wpAddIRQResource)
+  #define _wpAddDMAResource (somThis->wpAddDMAResource)
+  #define _wpAddIOResource (somThis->wpAddIOResource)
+  #define _wpAddMemoryResource (somThis->wpAddMemoryResource)
+  #define _wpGetUniqueID (somThis->wpGetUniqueID)
+  #define _wpRequestFolderMutexSem (somThis->wpRequestFolderMutexSem)
+  #define _wpReleaseFolderMutexSem (somThis->wpReleaseFolderMutexSem)
+  #define _wpRequestFindMutexSem (somThis->wpRequestFindMutexSem)
+  #define _wpReleaseFindMutexSem (somThis->wpReleaseFindMutexSem)
+#endif
+
 
 /*
  * -- Primary Implementation File Support
@@ -719,6 +981,9 @@ typedef void M_WPHwManagerExData;
   #define _somDumpSelfInt somSelf->somDumpSelfInt
   #define _wpclsQueryStyle somSelf->wpclsQueryStyle
   #define _wpclsQueryTitle somSelf->wpclsQueryTitle
+  #define _wpclsInitData somSelf->wpclsInitData
+  #define _wpclsUnInitData somSelf->wpclsUnInitData
+  #define _wpclsQueryDefaultView somSelf->wpclsQueryDefaultView
 #endif
 
 
@@ -812,6 +1077,123 @@ static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle_resol
    M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle(somSelf))
 
 /*
+ * Overridden method: wpclsInitData
+ */
+SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf);
+static char *somMN_M_WPHwManagerExwpclsInitData = "M_WPObject::wpclsInitData";
+static somId somId_M_WPHwManagerExwpclsInitData = &somMN_M_WPHwManagerExwpclsInitData;
+#ifdef somId_wpclsInitData
+#undef somId_wpclsInitData
+#else
+#define somId_wpclsInitData somId_M_WPHwManagerExwpclsInitData
+#endif
+typedef void   SOMLINK somTP_xih_M_WPHwManagerEx_wpclsInitData(M_WPHwManagerEx *somSelf);
+typedef somTP_xih_M_WPHwManagerEx_wpclsInitData *somTD_xih_M_WPHwManagerEx_wpclsInitData;
+/* define the parent method call macro */
+static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData_resolved;
+#define M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData(somSelf) \
+  ((( somTD_xih_M_WPHwManagerEx_wpclsInitData ) \
+      M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData_resolved) \
+	(somSelf))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpclsInitData
+  #ifdef parent_wpclsInitData
+    #define SOMGD_pmc_parent_wpclsInitData
+    #undef parent_wpclsInitData
+  #else
+#define parent_wpclsInitData M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_M_WPHwManager_wpclsInitData
+  #ifdef parent_M_WPHwManager_wpclsInitData
+    #define SOMGD_pmc_parent_M_WPHwManager_wpclsInitData
+    #undef parent_M_WPHwManager_wpclsInitData
+  #else
+    #define parent_M_WPHwManager_wpclsInitData M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData
+  #endif
+#endif
+#define M_WPHwManagerEx_parents_wpclsInitData(somSelf) (\
+   M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData(somSelf))
+
+/*
+ * Overridden method: wpclsUnInitData
+ */
+SOM_Scope void  SOMLINK wpclsUnInitData(M_WPHwManagerEx *somSelf);
+static char *somMN_M_WPHwManagerExwpclsUnInitData = "M_WPObject::wpclsUnInitData";
+static somId somId_M_WPHwManagerExwpclsUnInitData = &somMN_M_WPHwManagerExwpclsUnInitData;
+#ifdef somId_wpclsUnInitData
+#undef somId_wpclsUnInitData
+#else
+#define somId_wpclsUnInitData somId_M_WPHwManagerExwpclsUnInitData
+#endif
+typedef void   SOMLINK somTP_xih_M_WPHwManagerEx_wpclsUnInitData(M_WPHwManagerEx *somSelf);
+typedef somTP_xih_M_WPHwManagerEx_wpclsUnInitData *somTD_xih_M_WPHwManagerEx_wpclsUnInitData;
+/* define the parent method call macro */
+static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData_resolved;
+#define M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData(somSelf) \
+  ((( somTD_xih_M_WPHwManagerEx_wpclsUnInitData ) \
+      M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData_resolved) \
+	(somSelf))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpclsUnInitData
+  #ifdef parent_wpclsUnInitData
+    #define SOMGD_pmc_parent_wpclsUnInitData
+    #undef parent_wpclsUnInitData
+  #else
+#define parent_wpclsUnInitData M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_M_WPHwManager_wpclsUnInitData
+  #ifdef parent_M_WPHwManager_wpclsUnInitData
+    #define SOMGD_pmc_parent_M_WPHwManager_wpclsUnInitData
+    #undef parent_M_WPHwManager_wpclsUnInitData
+  #else
+    #define parent_M_WPHwManager_wpclsUnInitData M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData
+  #endif
+#endif
+#define M_WPHwManagerEx_parents_wpclsUnInitData(somSelf) (\
+   M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData(somSelf))
+
+/*
+ * Overridden method: wpclsQueryDefaultView
+ */
+SOM_Scope ULONG  SOMLINK wpclsQueryDefaultView(M_WPHwManagerEx *somSelf);
+static char *somMN_M_WPHwManagerExwpclsQueryDefaultView = "M_WPObject::wpclsQueryDefaultView";
+static somId somId_M_WPHwManagerExwpclsQueryDefaultView = &somMN_M_WPHwManagerExwpclsQueryDefaultView;
+#ifdef somId_wpclsQueryDefaultView
+#undef somId_wpclsQueryDefaultView
+#else
+#define somId_wpclsQueryDefaultView somId_M_WPHwManagerExwpclsQueryDefaultView
+#endif
+typedef ULONG   SOMLINK somTP_xih_M_WPHwManagerEx_wpclsQueryDefaultView(M_WPHwManagerEx *somSelf);
+typedef somTP_xih_M_WPHwManagerEx_wpclsQueryDefaultView *somTD_xih_M_WPHwManagerEx_wpclsQueryDefaultView;
+/* define the parent method call macro */
+static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView_resolved;
+#define M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView(somSelf) \
+  ((( somTD_xih_M_WPHwManagerEx_wpclsQueryDefaultView ) \
+      M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView_resolved) \
+	(somSelf))
+/* define a variety of (possibly ambiguous) short forms */
+#ifndef SOMGD_pmc_parent_wpclsQueryDefaultView
+  #ifdef parent_wpclsQueryDefaultView
+    #define SOMGD_pmc_parent_wpclsQueryDefaultView
+    #undef parent_wpclsQueryDefaultView
+  #else
+#define parent_wpclsQueryDefaultView M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView
+  #endif
+#endif
+#ifndef SOMGD_pmc_parent_M_WPHwManager_wpclsQueryDefaultView
+  #ifdef parent_M_WPHwManager_wpclsQueryDefaultView
+    #define SOMGD_pmc_parent_M_WPHwManager_wpclsQueryDefaultView
+    #undef parent_M_WPHwManager_wpclsQueryDefaultView
+  #else
+    #define parent_M_WPHwManager_wpclsQueryDefaultView M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView
+  #endif
+#endif
+#define M_WPHwManagerEx_parents_wpclsQueryDefaultView(somSelf) (\
+   M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView(somSelf))
+
+/*
  * -- Routines and Structures to create the class object
  */
 
@@ -824,6 +1206,12 @@ static somOverrideMethod_t M_WPHwManagerExOM[] = {
          (somMethodProc *) wpclsQueryStyle  },
     {    &somId_M_WPHwManagerExwpclsQueryTitle,
          (somMethodProc *) wpclsQueryTitle  },
+    {    &somId_M_WPHwManagerExwpclsInitData,
+         (somMethodProc *) wpclsInitData  },
+    {    &somId_M_WPHwManagerExwpclsUnInitData,
+         (somMethodProc *) wpclsUnInitData  },
+    {    &somId_M_WPHwManagerExwpclsQueryDefaultView,
+         (somMethodProc *) wpclsQueryDefaultView  },
 };
 
 
@@ -838,9 +1226,9 @@ static somId somPCM_WPHwManagerEx[] = {
 };
 
 static somStaticClassInfo M_WPHwManagerExSCI = {
-    4, 0, 2, 0, 0, 0, /* layout version 4 */ 
+    4, 0, 5, 0, 0, 0, /* layout version 4 */ 
     M_WPHwManagerEx_MajorVersion, M_WPHwManagerEx_MinorVersion,
-    0, M_WPHwManagerEx_MaxNoMethods, 1,
+    sizeof(M_WPHwManagerExData), M_WPHwManagerEx_MaxNoMethods, 1,
     &somCN_M_WPHwManagerEx,
     (somId) NULL, 1,
     somPCM_WPHwManagerEx,
@@ -852,7 +1240,7 @@ static somStaticClassInfo M_WPHwManagerExSCI = {
    (somProcMethods_t *) NULL,
     (somVarargsFuncs_t *) NULL,
     (somTP_somClassInitFunc *) NULL,
-    0, /* type code alignment */
+    4, /* type code alignment */
     -1, /* use parents as DirectInitClasses */
     0, /* no explicit DirectInitClasses */
     0, /* number of general methods */
@@ -884,6 +1272,12 @@ SOMClass * SOMLINK M_WPHwManagerExNewClass (integer4 somtmajorVersion,
           return ((SOMClass*)((void*)_M_WPHwManagerEx));
     M_WPHwManagerNewClass(M_WPHwManager_MajorVersion,M_WPHwManager_MinorVersion);	/* static reference */
     result = (SOMClass*)((void*)somBuildClass(0xFFFFFFFF,&M_WPHwManagerExSCI, somtmajorVersion, somtminorVersion));
+    M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView_resolved = 
+	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsQueryDefaultView);
+    M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData_resolved = 
+	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsUnInitData);
+    M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData_resolved = 
+	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsInitData);
     M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle_resolved = 
 	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsQueryTitle);
     M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle_resolved = 
