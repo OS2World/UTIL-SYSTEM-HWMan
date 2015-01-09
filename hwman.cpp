@@ -175,7 +175,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
     FDATE date;
     char strBuffer[80];
     BOOL fHide;
-    POINTL ptl={0};
+    PPOINTL pptl;
     APIRET rcFindSemSuccess;
     APIRET rcFolderSemSuccess;
 
@@ -216,7 +216,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
         */
         if ((rcFolderSemSuccess = somMThis->wpRequestFolderMutexSem(somSelf,1000)) == NO_ERROR) {
 
-            somSelf->wpModifyFldrFlags( FOI_POPULATEINPROGRESS,
+            somSelf->wpModifyFldrFlags( FOI_TREEPOPULATED|FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,
                                                   FOI_POPULATEINPROGRESS);
 
             /* first for every existing object we check if it (still) exists in the RM tree */
@@ -400,16 +400,14 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                         note: I found these setup strings in PNP.DLL by expanding the DLL (lxlite /X) and looking at it
                         with a text editor ...
                         while we are at it we also take the opportunity and set the icon position for icon view
-                        where 0,0 means "next available position"
+                        we take the icon position that we are suggested to take
+                        there are RM device objects below PIC_0,PIC_1,DMA_CTRL_0,DMA_CTRL_1,TIMER
+                        which should not show up in the HW manager tree
+                        instead of skipping these, we just make them invisible which is easier to manage
+                        as then the objects exist and can be checked for but they won't be visible in any view
                     */
-                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;ICONPOS=0,0;",uniqueHandle,depth ? parentHandles[depth-1]: 0);
-                    /* there are RM device objects below PIC_0,PIC_1,DMA_CTRL_0,DMA_CTRL_1,TIMER */
-                    /* which should not show up in the HW manager tree */
-                    /* instead of skipping these, we just make them invisible which is easier to manage */
-                    /* as then the objects exist and can be checked for but they won't be visible in any view */
-                    if (fHide) {
-                       strcat(strBuffer,"NOTVISIBLE=YES;");
-                    } /* endif */
+                    pptl = somSelf->wpQueryNextIconPos();
+                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;NOTVISIBLE=%s;ICONPOS=%i,%i;",uniqueHandle,depth ? parentHandles[depth-1]: 0,fHide ? "YES" : "NO",pptl->x,pptl->y);
 
                     /* wpclsNew will also add to the folder content list (wpAddToContent is called) */
                     /* wpclsNew will also call wpCnrInsertObject on the new object for every view currently open */
@@ -459,12 +457,6 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
             } /* endfor */
 
             /*
-                this will help icon view to properly place the icons in the view in icon view.
-                0,0 means: "put at next available position"
-            */
-            somSelf->wpSetNextIconPos(&ptl);
-
-            /*
                 the wpPopulate implementation of WPFolder does a whole bunch of undocumented
                 things so that view update on folder population will actually work
                 WPHwManager inherits from WPFolder but we cannot call WPHwManager's wpPopulate
@@ -477,7 +469,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
             somSelf->somCastObj(_WPFolder);
             fRc = somSelf->wpPopulate(ulReserved,pszPath,fFoldersOnly);
             somSelf->somResetObj();
-    
+
             somSelf->wpModifyFldrFlags(FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS);
         }
         ENDTRY(exc2);
@@ -494,8 +486,9 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
     return fRc;
 }
 
-
-
+/*
+ * The prototype for wpInitData was replaced by the following prototype:
+ */
 SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf)
 {
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
@@ -532,13 +525,12 @@ SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     WPHwManagerExMethodDebug("WPHwManagerEx","wpDeleteFromObjUseList");
 
-    BOOL fRC = (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf, 
-                                                                    pUseItem));
-
     if (pUseItem->type == USAGE_OPENVIEW && !somSelf->wpFindViewItem(VIEW_CONTENTS | VIEW_DETAILS | VIEW_TREE,NULL)) {
        WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
     } /* endif */
-    return fRC;
+
+    return (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf, 
+                                                                    pUseItem));
 }
 
 
