@@ -5,11 +5,19 @@
 ;      SOM Precompiler somipc: 2.29.1.17
 ;      SOM Emitter emitdef: 2.47
 LIBRARY hwman INITINSTANCE TERMINSTANCE
-DESCRIPTION '@#Lars Erdmann:3.0.1#@##1## 2015/01/07 18:46:00      Standbein ::::1::0@@WPHwManagerEx Class Library'
+DESCRIPTION '@#Lars Erdmann:6.0.1#@##1## 2016/03/15 07:49:00      Standbein ::::1::0@@WPHwManagerEx Class Library'
 PROTMODE
 DATA MULTIPLE NONSHARED LOADONCALL
 EXPORTS
    SOMInitModule
+
+;   WPDevCPUExCClassData
+;   WPDevCPUExClassData
+;   WPDevCPUExNewClass
+;   M_WPDevCPUExCClassData
+;   M_WPDevCPUExClassData
+;   M_WPDevCPUExNewClass
+
    WPHwManagerExCClassData
    WPHwManagerExClassData
    WPHwManagerExNewClass
@@ -17,8 +25,13 @@ EXPORTS
    M_WPHwManagerExClassData
    M_WPHwManagerExNewClass
 
+
 IMPORTS
+   UsbQueryNumberDevices = USBCALLS.2
+   UsbQueryDeviceInfo    = USBCALLS.4
+   UsbQueryDeviceReport  = USBCALLS.1
    RMEnumNodes  = RMINFO.2
    RMGetNodeInfo = RMINFO.5
    RMCreateAdapter = RMINFO.9
-   RMCreateDriver = RMINFO.6    
+   RMDestroyAdapter = RMINFO.14
+

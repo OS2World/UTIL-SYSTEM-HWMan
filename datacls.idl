@@ -1,0 +1,184 @@
+#ifndef dataObject_idl
+#define dataObject_idl
+
+#include <thash.idl>
+#include <thashitr.idl>
+#include <tclong.idl>
+
+interface KeyObject : somf_TCollectibleLong
+{
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion   = 2;
+      minorversion   = 1;
+      callstyle      = idl;
+      functionprefix = key_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      somfIsSame: override;
+
+      passthru C_xh_after = ""
+      "#include <thash.xh>"
+      "#include <tclong.xh>"
+      "#include <thashitr.xh>"
+      "";
+   };
+#endif
+};
+
+
+interface ProductObject : somf_MCollectible
+{
+   attribute string         productName;
+
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion   = 2;
+      minorversion   = 1;
+      callstyle      = idl;
+      functionprefix = product_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      productName: noset,noget;
+      releaseorder: _get_productName,_set_productName;
+   };
+#endif
+};
+
+interface VendorObject : somf_MCollectible
+{
+   attribute string          vendorName;
+   ProductObject addProduct(in long key,in string productName);
+   ProductObject findProduct(in long key);
+
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion = 2;
+      minorversion = 1;
+      callstyle    = idl;
+      functionprefix = vendor_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      vendorName: noset,noget;
+      releaseorder: _get_vendorName,_set_vendorName,addVendor,addProduct,findProduct;
+
+      somf_THashTable products;
+      ProductObject defaultProduct;
+   };
+#endif
+};
+
+interface USBDeviceCollection : somf_THashTable
+{
+   VendorObject addVendor(in long key,in string vendorName);
+   VendorObject findVendor(in long key);
+
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion = 2;
+      minorversion = 1;
+      callstyle    = idl;
+      functionprefix = USB_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      releaseorder: addVendor,findVendor;
+
+      VendorObject defaultVendor;
+   };
+#endif
+};
+
+interface RMDeviceObject: somf_MCollectible
+{
+   attribute long       idVendor;
+   attribute long       idProduct;
+
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion = 2;
+      minorversion = 1;
+      callstyle    = idl;
+      functionprefix = device_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      releaseorder: _get_idVendor,_set_idVendor,_get_idProduct,_set_idProduct;
+   };
+#endif
+};
+
+interface RMDeviceCollection : somf_THashTable
+{
+   RMDeviceObject addRMDevice(in long key,in long idVendor, in long idProduct );
+   RMDeviceObject findRMDevice(in long key);
+   void deleteRMDevice(in long key);
+
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion = 2;
+      minorversion = 1;
+      callstyle    = idl;
+      functionprefix = RM_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+      releaseorder: addRMDevice,findRMDevice,deleteRMDevice;
+
+      passthru C_xih_after = ""
+      "#define INCL_BASE"
+      "#include <os2.h>"
+      "#include <rmbase.h>"
+      "#pragma pack(1)"
+      "typedef struct"
+      "{"
+      "   UCHAR              ctrlID;              // (00) controller ID"
+      "   UCHAR              deviceAddress;       // (01) USB device address"
+      "   UCHAR              bConfigurationValue; // (02) USB device configuration value"
+      "   UCHAR              bInterfaceNumber;    // (03) 0 based index in interface array for this item"
+      "   UCHAR              SpeedDevice;         // (04) 0 for full speed device, 1 - low speed device  2 - high speed device"
+      "   UCHAR              portNum;             // (05) port number to which device is attached"
+      "   USHORT             parentHubIndex;      // (06) index in hub table to parent hub, -1 for root hub device"
+      "   HDEVICE            rmDevHandle;         // (08) Resource Manager device handle"
+      "} GETDEVINFODATA, *NGETDEVINFO, FAR* PGETDEVINFO;"
+      ""      
+      "typedef struct _device_descriptor_"
+      "{"
+      "   UCHAR    bLength;             // (00) Size of descriptor in bytes"
+      "   UCHAR    bDescriptorType;     // (01) 0x01 - DEVICE Descriptor type"
+      "   USHORT   bcdUSB;              // (02) USB Specification Release Number"
+      "   UCHAR    bDeviceClass;        // (04) Class Code"
+      "   UCHAR    bDeviceSubClass;     // (05) SubClass Code"
+      "   UCHAR    bDeviceProtocol;     // (06) Protocol Code"
+      "   UCHAR    bMaxPacketSize0;     // (07) Maximum packet size for endpoint 0"
+      "   USHORT   idVendor;            // (08) Vendor ID"
+      "   USHORT   idProduct;           // (10) Product ID"
+      "   USHORT   bcdDevice;           // (12) Device release number"
+      "   UCHAR    iManufacturer;       // (14) Index of string descriptor describing manufacturer"
+      "   UCHAR    iProduct;            // (15) Index of string descriptor describing product"
+      "   UCHAR    iSerialNumber;       // (16) Index of string descriptor describing device's serial number"
+      "   UCHAR    bNumConfigurations;  // (17) Number of possible configurations"
+      "                                 // (18)"
+      "}  DeviceDescriptor;"
+      "#pragma pack()"
+      ""
+      "APIRET APIENTRY UsbQueryNumberDevices( ULONG *pulNumDev);"
+      "APIRET APIENTRY UsbQueryDeviceInfo( ULONG ulDevNumber,ULONG *pulBufLen,GETDEVINFODATA *pucData);"
+      "APIRET APIENTRY UsbQueryDeviceReport( ULONG ulDevNumber,ULONG *pulBufLen,DeviceDescriptor *pucData);"
+      "";
+
+   };
+#endif
+};
+
+#endif
+

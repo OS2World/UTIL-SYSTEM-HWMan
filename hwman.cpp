@@ -21,13 +21,261 @@
 
 #define _RETAIL /* to completely eliminate the ...MethodDebug(...) debugging output to SOMOutCharRoutine (default:stdout) */
 #include "hwman.xih"
+#include "devcpu.xih"
+#include "datacls.xh"
 #include "except.h"
+#if (defined(__IBMC__) || defined(__IBMCPP__))
+#include <umalloc.h>
+#endif
+#if defined(__WATCOMC__)
+#include <malloc.h>
+#endif
+
+void APIENTRY cpuGetBrandString(PSZ buf,ULONG buflen);
+
+
+somToken SOMLINK MyCalloc(size_t element_count,size_t element_size);
+void SOMLINK MyFree(somToken memory);
+somToken SOMLINK MyMalloc(size_t nbytes);
+somToken SOMLINK MyRealloc(somToken memory,size_t nbytes);
+
+// we replace the standard SOM memory management functions with our own
+// this was done so that we can do all memory allocation in high memory
+// we are using a private heap. This functionality is offered by the VAC
+// RTL library by means of the _ucreate,_umalloc,_ucalloc,_uclose,_udestroy functions
+// fortunately, the pointer variables SOMCalloc,SOMFree,SOMMalloc,SOMRealloc
+// are kept in this DLL's data segment which makes it possible to replace
+// the memory management functions for this DLL only
+SOMEXTERN somTD_SOMCalloc  * SOMDLINK SOMCalloc  = MyCalloc;
+SOMEXTERN somTD_SOMFree    * SOMDLINK SOMFree    = MyFree;
+SOMEXTERN somTD_SOMMalloc  * SOMDLINK SOMMalloc  = MyMalloc;
+SOMEXTERN somTD_SOMRealloc * SOMDLINK SOMRealloc = MyRealloc;
+
+
+char buf[8192];
+char devBuf[MAX_RM_NODE_SIZE];
+char parentdevBuf[MAX_RM_NODE_SIZE];
+char drvBuf[MAX_RM_NODE_SIZE];
+HMODULE gModule=NULLHANDLE;
+
+
+HDRIVER ReturnKernelDriverNode(void)
+{
+   HDRIVER hDriver = NULLHANDLE;
+   PRM_GETNODE_DATA pDrvNode=(PRM_GETNODE_DATA)drvBuf;
+   APIRET rc;
+   ULONG i;
+
+   RM_ENUMNODES_PARM Cmd={RM_COMMAND_DRVR};
+   PRM_ENUMNODES_DATA pNodes=(PRM_ENUMNODES_DATA)buf;
+   memset(buf,0,sizeof(buf));
+   rc = RMEnumNodes(&Cmd,pNodes,sizeof(buf));
+   for (i=0;i<pNodes->NumEntries ;i++ ) {
+      hDriver = pNodes->NodeEntry[i].RMHandle;
+      rc = RMGetNodeInfo(hDriver,pDrvNode,sizeof(drvBuf));
+      if (0 == strcmp("OS2KRNL",pDrvNode->RMNode.pDriverNode->DrvrName)) {
+         break;
+      } /* endif */
+   } /* endfor */
+   return hDriver;
+}
+
+
+
+#if (defined(__IBMC__) || defined(__IBMCPP__))
+
+#define MEMSIZE 1024UL*128UL // allocate in chunks of 128 kB
+Heap_t gHeap = NULL;
+
+void * _LNK_CONV AllocateMoreMemory(Heap_t, size_t *size, int *clean)
+{
+   APIRET rc = NO_ERROR;
+   PVOID ptr=NULL;
+   rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE|OBJ_ANY);
+   if (NO_ERROR != rc) {
+      ptr = NULL;
+      rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE);
+   }
+   if ((NO_ERROR == rc) && ptr) {
+      *size  = MEMSIZE;
+      *clean = _BLOCK_CLEAN;
+   } /* endif */
+   return ptr;
+}
+
+void _LNK_CONV ReleaseMemory(Heap_t, void *ptr, size_t size)
+{
+   if (ptr) {
+      DosFreeMem(ptr);
+   } /* endif */
+}
 
 /*
-    it's a very good idea to always implement (and export via DEF file) the SOMInitModule function
-    that function will need to call the class creation routine for WPHwManagerEx
-    for our specific purpose we will also need to call the WPDevice class creation routine FIRST
-    because we need the WPDevice class object (_WPDevice) in the class init routine of the WPHwManagerEx class
+  IMPORTANT NOTE ON CALLING _CRT_init and _CRT_term in any case, no matter if you link to the CRT statically or dynamically
+
+<quote>
+#: 172179 S4/IBM VisualAge C++
+    31-Jan-96  02:11:56
+Sb: #Destructors at exit(int)
+Fm: ROGER PETT [IBM] 73251,1733
+To: Dean Roddey 72170,1614 (X)
+
+OS/2 is supposed to run DLL termination in the opposite order to the DLL
+initialization.  Since static object destructors and CRT termination are
+done in the DLL termination ocde, it is a problem if this does not happen.
+
+Unfortunately, there *are* conditions where the DLL termination can run
+"out of order".  It's a known OS/2 bug, and I understand that it is not
+fixable without some rather major surgery (i.e. it's likely to introduce new
+bugs!).
+Personally, I'd rather have the devil I know, since you can program your
+way around it.  For example:
+  In VAC++, the CRT exposes both _CRT_init() and _CRT_term(), and you
+should call both, regardless of whether you statically or dynamically bind to
+the runtime.   This is a change from C Set++.  We count the number of times
+the runtime is initialized, and only completely shut down the runtime when
+the number of _CRT_term() calls match the number of _CRT_init() calls.  This
+insures the runtime stays "alive" until all its users have terminated.  We get
+away with this because the OS doesn't immediately unload the DLL after
+running the DLL termination.
+
+Roger..
+</quote>
+*/
+
+
+// we need to allocate in high memory for all SOM object and memory allocation
+// we have to do this already on DLL load
+// that's why we replace the DLL InitTerm routine with our own
+ULONG APIENTRY _DLL_InitTerm(ULONG hMod,ULONG flag)
+{
+   APIRET rc = NO_ERROR;
+
+   if (flag == 0)
+   {
+      gModule = hMod;
+
+      if (_CRT_init())
+      {
+         return 0;
+      }
+
+#ifdef __cplusplus
+      __ctordtorInit();
+#endif
+
+      if (!gHeap) {
+         PVOID ptr = NULL;
+         // allocate a large chunk of memory in high memory (OBJ_ANY attribute)
+         rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE|OBJ_ANY);
+         if (NO_ERROR != rc) {
+            ptr = NULL;
+            rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE);
+         }
+         if ((NO_ERROR == rc) && ptr) {
+            // create a private heap with the memory just allocated
+            gHeap = _ucreate(ptr,MEMSIZE,_BLOCK_CLEAN,_HEAP_REGULAR,AllocateMoreMemory,ReleaseMemory);
+            return 1;
+         }
+         else {
+            return 0;
+         }
+       }
+       else {
+          return 1;
+       }
+   }
+   else if (flag == 1)
+   {
+      if (gHeap) {
+         // destroy the private heap
+         _uclose(gHeap);
+         _udestroy(gHeap,_FORCE);
+         // free the large chunk of memory
+         gHeap = NULL;
+      }
+
+#ifdef __cplusplus
+      __ctordtorTerm();
+#endif
+
+      _CRT_term();
+
+      return 1;
+   }
+   else
+   {
+      return 0;
+   }
+}
+#endif
+
+
+#if defined(__WATCOMC__)
+// for Watcom, we just need to set a global flag to have
+// malloc,calloc allocate memory from the high memory area
+unsigned APIENTRY LibMain(unsigned hMod,unsigned flag)
+{
+   if (flag == 0)
+   {
+      gModule = hMod;
+      // enable high memory
+      _use_os2_high_mem(1);
+      return 1;
+   }
+   else if (flag == 1)
+   {
+      return 1;
+   }
+   else
+   {
+      return 0;
+   } /* endif */
+}
+#endif
+
+somToken SOMLINK MyCalloc(size_t element_count,size_t element_size)
+{
+#if (defined(__IBMC__) || defined(__IBMCPP__))
+   return _ucalloc(gHeap,element_count,element_size);
+#else
+   return calloc(element_count,element_size);
+#endif
+}
+
+void SOMLINK MyFree(somToken memory)
+{
+   free(memory);
+}
+
+somToken SOMLINK MyMalloc(size_t nbytes)
+{
+#if (defined(__IBMC__) || defined(__IBMCPP__))
+   return _umalloc(gHeap,nbytes);
+#else
+   return malloc(nbytes);
+#endif
+}
+
+somToken SOMLINK MyRealloc(somToken memory,size_t nbytes)
+{
+   return realloc(memory,nbytes);
+}
+
+
+
+
+/*
+    some oddities:
+    1) KeyObject,ProductObject,VendorObject,RMDeviceObject,USBDeviceColleciton,RMDeviceCollection
+       classes CANNOT be registered by exporting their relevant entry points via the DEF file
+       and having them invoked by the class registration mechanism
+       that's why we have to register them via the SOMInitModule function
+    2) WPDevCPUEx class can be exported via the DEF file but on registration the system will freeze
+       If we register it from the SOMInitModule function, everything is fine
+    3) WPHwManagerEx class HAS to export its relevant entry points via the DEF file
+       with the normal WPS registration process registering the class. Otherwise class REPLACEMENT
+       would not be possible (remember, WPHwManagerEx not only subclasses WPHwManager but also REPLACES it)
 */
 SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string className)
 {
@@ -35,12 +283,13 @@ SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string
     SOM_IgnoreWarning(minorVersion);
     SOM_IgnoreWarning(className);
 
-    /* we have to load WPDevice class BEFORE wpclsInitData of WPHwManagerEx class
-        because wpclsInitData is invoked from WPHwManagerExNewClass and it utilizes
-        the WPDevice class object !!!
-    */
-    WPDeviceNewClass(WPDevice_MajorVersion,WPDevice_MinorVersion);
-    WPHwManagerExNewClass(WPHwManagerEx_MajorVersion,WPHwManagerEx_MinorVersion);
+    KeyObjectNewClass(KeyObject_MajorVersion,KeyObject_MinorVersion);
+    ProductObjectNewClass(ProductObject_MajorVersion,ProductObject_MinorVersion);
+    VendorObjectNewClass(VendorObject_MajorVersion,VendorObject_MinorVersion);
+    RMDeviceObjectNewClass(RMDeviceObject_MajorVersion,RMDeviceObject_MinorVersion);
+    USBDeviceCollectionNewClass(USBDeviceCollection_MajorVersion,USBDeviceCollection_MinorVersion);
+    RMDeviceCollectionNewClass(RMDeviceCollection_MajorVersion,RMDeviceCollection_MinorVersion);
+    WPDevCPUExNewClass(WPDevCPUEx_MajorVersion,WPDevCPUEx_MinorVersion);
     return;
 }
 
@@ -50,13 +299,14 @@ void _LNK_CONV RefreshThread(void *p)
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     QMSG qmsg;
 
+
     HAB hab = WinInitialize(0);
     /*
         if you want to use WPS/SOM methods from a secondary thread
         you always need to create a message queue as several methods
         require it, we save the handle in the instance data so that we can
         use it from the main thread to post messages to it
-    */            
+    */
     somThis->hmqRefreshThread = WinCreateMsgQueue(hab,0);
     /*
         when the system shuts down you do not want a WM_QUIT message
@@ -135,11 +385,6 @@ SOM_Scope void SOMLINK somDestruct(WPHwManagerEx *somSelf, octet doFree,
     WPHwManagerEx_EndDestructor;
 }
 
-char buf[8192];
-char devBuf[MAX_RM_NODE_SIZE];
-char parentdevBuf[MAX_RM_NODE_SIZE];
-char drvBuf[MAX_RM_NODE_SIZE];
-
 /*
  *        wpDeleteFromObjUseList  :override;
  */
@@ -152,7 +397,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
 
     WPHwManagerExMethodDebug("WPHwManagerEx","wpPopulate");
 
-    BOOL fRc = FALSE;   
+    BOOL fRc = FALSE;
     WPDevice *obj=NULL,*nextObj=NULL,*newObj=NULL;
     M_WPDevice *classObj=NULL;
     APIRET rc;
@@ -173,11 +418,18 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
     USHORT subType = 0;
     USHORT ifType = 0;
     FDATE date;
-    char strBuffer[80];
+    char strBuffer[512];
     BOOL fHide;
-    PPOINTL pptl;
     APIRET rcFindSemSuccess;
     APIRET rcFolderSemSuccess;
+
+    VendorObject *pV;
+    ProductObject *pP;
+    RMDeviceObject *pR;
+
+    Environment *ev = somGetGlobalEnvironment();
+    RMDeviceCollection  *pRMColl = new RMDeviceCollection;
+
 
     /*
         initial note: the resource manager (RM) defines driver, adapter and device plus a couple of other "classes" that are not
@@ -187,7 +439,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
         "base class" and "subclass". On the other hand there will be a WPDevice object for a RM device but that object will only have room
         for RM adapter parameters and not the RM device parameters. The compromise is to use the parent RM adapter's base class and subclass
         parameters for a RM device in the corresponding WPDevice object ...
-    */            
+    */
 
     /* better add exception handling for whenever you request any of the semaphores */
     /* if you trap before releasing the semaphore, the system will enter a catastrophic state ... */
@@ -198,7 +450,6 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
         gleaned this from the XWorkplace implementation
     */
     if ((rcFindSemSuccess = somMThis->wpRequestFindMutexSem(somSelf,1000)) == NO_ERROR) {
-
         /*
             first thing is to get the complete RM node list of all RM adapters and RM devices
             that's what you get when you specify Cmd = RM_COMMAND_PHYS
@@ -216,8 +467,9 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
         */
         if ((rcFolderSemSuccess = somMThis->wpRequestFolderMutexSem(somSelf,1000)) == NO_ERROR) {
 
-            somSelf->wpModifyFldrFlags( FOI_TREEPOPULATED|FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,
+            somSelf->wpModifyFldrFlags( FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,
                                                   FOI_POPULATEINPROGRESS);
+
 
             /* first for every existing object we check if it (still) exists in the RM tree */
             /* if not, we are going to remove it */
@@ -225,6 +477,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
             /* there is no need to awaken them, they will also never go dormant */
             obj = (WPDevice *)somSelf->wpQueryContent(NULL,QC_FIRST);
             while (obj) {
+
                nextObj = (WPDevice *)somSelf->wpQueryContent(obj,QC_NEXT);
                uniqueHandle = somMThis->wpGetUniqueID(obj);
                for (i=0;i<pData->NumEntries;i++) {
@@ -235,9 +488,15 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                   } /* endif */
                } /* endfor */
                if (i >= pData->NumEntries) {
-                    /* no corresponding RM node could be found for this object, delete the object */
-                    obj->wpFree();
+                  /* no corresponding RM node could be found for this object, delete the object */
+                  obj->wpFree();
+                  /* also delete the corresponding object from the RM node collection */
+                  pRMColl->deleteRMDevice(ev,uniqueHandle);
                } /* endif */
+               else {
+                  obj->wpUnlockObject();
+               }
+
                obj = nextObj;
             } /* endwhile */
 
@@ -246,7 +505,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
             /* for every RM node where we did not yet find a corresponding object */
             /* create a new WPDevice (or derived thereof) object */
             /* unfortunately, the class tree of WPDevice and derived classes is brain dead in */
-            /* that we have to create objects of different class for different types of devices only because of differing icons */            
+            /* that we have to create objects of different class for different types of devices only because of differing icons */
             /* where it would have been much simpler to just adjust the icon of the object depending on device type ... */
             for (i=0;i<pData->NumEntries;i++) {
                depth = pData->NodeEntry[i].Depth & ~0x80000000UL;
@@ -259,12 +518,12 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                     fHide = FALSE;
                     switch(nodeType) {
                         case RMTYPE_ADAPTER:
-                           pszTitle = pDevNode->RMNode.pAdapterNode->AdaptDescriptName;
-                           baseType = pDevNode->RMNode.pAdapterNode->BaseType;
+                           pszTitle  = pDevNode->RMNode.pAdapterNode->AdaptDescriptName;
+                           baseType  = pDevNode->RMNode.pAdapterNode->BaseType;
                            subType   = pDevNode->RMNode.pAdapterNode->SubType;
-                           ifType      = pDevNode->RMNode.pAdapterNode->InterfaceType;
-                           drvHandle  = pDevNode->RMNode.DriverHandle;
-                           classObj = NULL;
+                           ifType    = pDevNode->RMNode.pAdapterNode->InterfaceType;
+                           drvHandle = pDevNode->RMNode.DriverHandle;
+                           classObj  = NULL;
                            break;
                         case RMTYPE_DEVICE:
                            pszTitle = pDevNode->RMNode.pDeviceNode->DevDescriptName;
@@ -303,7 +562,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                               fHide = TRUE;
                            } /* endif */
                            break;
-                        default: 
+                        default:
                            pszTitle = NULL;
                            baseType = AS_BASE_RESERVED;
                            subType = AS_SUB_OTHER;
@@ -368,7 +627,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                           classObj = (M_WPDevice *)_WPDevAudio;
                        }
                        else if ((baseType == 0) && (subType == 0) && (ifType == 0)) {
-                          classObj = (M_WPDevice *)_WPDevCPU;
+                          classObj = (M_WPDevice *)_WPDevCPUEx;
                        }
                        else {
                           classObj = _WPDevice;
@@ -399,19 +658,61 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                         but PARENTID is mandatory to be set already on object creation
                         note: I found these setup strings in PNP.DLL by expanding the DLL (lxlite /X) and looking at it
                         with a text editor ...
-                        while we are at it we also take the opportunity and set the icon position for icon view
-                        we take the icon position that we are suggested to take
+
                         there are RM device objects below PIC_0,PIC_1,DMA_CTRL_0,DMA_CTRL_1,TIMER
                         which should not show up in the HW manager tree
                         instead of skipping these, we just make them invisible which is easier to manage
                         as then the objects exist and can be checked for but they won't be visible in any view
                     */
-                    pptl = somSelf->wpQueryNextIconPos();
-                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;NOTVISIBLE=%s;ICONPOS=%i,%i;",uniqueHandle,depth ? parentHandles[depth-1]: 0,fHide ? "YES" : "NO",pptl->x,pptl->y);
-
+                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;NOTVISIBLE=%s;",uniqueHandle,depth ? parentHandles[depth-1]: 0,fHide ? "YES" : "NO");
                     /* wpclsNew will also add to the folder content list (wpAddToContent is called) */
                     /* wpclsNew will also call wpCnrInsertObject on the new object for every view currently open */
                     newObj= (WPDevice *)classObj->wpclsNew(pszTitle,strBuffer,somSelf,TRUE);
+
+                    /*
+                        reset the title for all objects that represent a USB device
+                        to the vendor/product string that we queried from file "usb.ids"
+                    */
+                    pR = NULL; pV = NULL; pP = NULL;
+                    // search the device in the device data base:
+                    // "uniqueHandle" is the RM device node
+                    // which is the lookup key to find the vendor and device string
+                    pR = pRMColl->findRMDevice(ev,uniqueHandle);
+                    if (pR && somMThis->pUSBColl) {
+                       pV = somMThis->pUSBColl->findVendor(ev,pR->_get_idVendor(ev));
+                    }
+                    if (pV) {
+                       pP = pV->findProduct(ev,pR->_get_idProduct(ev));
+                    } /* endif */
+
+                    if (pV && pP) {
+                       sprintf(strBuffer,"%s\n%s",pV->_get_vendorName(ev),pP->_get_productName(ev));
+                       newObj->wpSetTitle(strBuffer);
+                    } /* endif */
+
+
+                    /*
+                        reset the title for objects of class "WPDevCPU"
+                        to display the brand string of the CPU
+                    */
+                    if (classObj == (M_WPDevice *)_WPDevCPUEx) {
+                        cpuGetBrandString(strBuffer,sizeof(strBuffer));
+                        newObj->wpSetTitle(strBuffer);
+                    } /* endif */
+
+                    /*
+                        stupid enough, WPDevice class allows renaming of its objects,
+                        that means you can open the settings notebook for a device
+                        and delete all the titles ...
+                        we prevent this by setting the object style to OBJSTYLE_NORENAME
+                        the clean solution would be to implement a replacement
+                        class for WPDevice that uses "wpclsQueryStyle"
+                        to return bit CLSSTYLE_NEVERRENAME but that is just too
+                        much hassle for too little gain
+                    */
+                    newObj->wpModifyStyle(OBJSTYLE_NORENAME,OBJSTYLE_NORENAME);
+
+
                     somMThis->wpSetNodeType(newObj,nodeType);
                     somMThis->wpSetNodeBaseType(newObj,baseType);
                     somMThis->wpSetNodeSubType(newObj,subType);
@@ -453,6 +754,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                        */
                        newObj->wpCnrRefreshDetails();
                     }
+                    newObj->wpUnlockObject();
                } /* endif */
             } /* endfor */
 
@@ -483,6 +785,13 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
     if (rcFindSemSuccess == NO_ERROR) {
         somMThis->wpReleaseFindMutexSem(somSelf);
     } /* endif */
+
+
+    if (pRMColl) {
+       delete pRMColl;
+       pRMColl = NULL;
+    } /* endif */
+
     return fRc;
 }
 
@@ -499,7 +808,7 @@ SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf)
     somThis->hmqRefreshThread = NULLHANDLE;
 }
 
-SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf, 
+SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf,
                                           PUSEITEM pUseItem)
 {
     /* WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf); */
@@ -515,11 +824,11 @@ SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf,
        _beginthread(RefreshThread,NULL,0x8000,somSelf);
     } /* endif */
 
-    return (WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf, 
+    return (WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf,
                                                                pUseItem));
 }
 
-SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf, 
+SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
                                                PUSEITEM pUseItem)
 {
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
@@ -529,31 +838,8 @@ SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
        WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
     } /* endif */
 
-    return (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf, 
+    return (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf,
                                                                     pUseItem));
-}
-
-
-SOM_Scope ULONG  SOMLINK wpclsQueryStyle(M_WPHwManagerEx *somSelf)
-{
-    ULONG ret;
-
-    /* M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf); */
-    M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsQueryStyle");
-
-    ret =  (M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle(somSelf));
-    /* we better make sure you cannot create a template from the HW manager object */
-    /* in the templates folder. That would be completely useless and just confuse users ... */
-    ret |= CLSSTYLE_DONTTEMPLATE;
-    return ret;
-}
-
-SOM_Scope PSZ  SOMLINK wpclsQueryTitle(M_WPHwManagerEx *somSelf)
-{
-    /* M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf); */
-    M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsQueryTitle");
-
-    return "Hardware Manager Extension";
 }
 
 SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf)
@@ -609,6 +895,9 @@ SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf)
 
     M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData(somSelf);
 
+    /* we have to load WPDevice class because we are making use of the Metaclass object _WPDevice */
+    WPDeviceNewClass(WPDevice_MajorVersion,WPDevice_MinorVersion);
+
     /* lock the WPDevice class object once so that the WPDevice class DLL (PNP.DLL) will not get unloaded prematurely */
     _WPDevice->wpclsIncUsage();
 
@@ -644,17 +933,74 @@ SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf)
     somThis->wpRequestFindMutexSem = (PFN_WPREQUESTFINDMUTEXSEM)_WPHwManagerEx->somFindSMethod(theId18);
     somThis->wpReleaseFindMutexSem = (PFN_WPRELEASEFINDMUTEXSEM )_WPHwManagerEx->somFindSMethod(theId19);
 
+    somThis->pUSBColl = new USBDeviceCollection;
+
+    {
+       ULONG ulNum,ulBootTime,i;
+       HDRIVER hDriver=NULLHANDLE;
+       HADAPTER hAdapter=NULLHANDLE;
+       APIRET rc;
+
+       ADJUNCT adaptNum={0};
+       ADJUNCT adaptModel={0};
+       ADAPTERSTRUCT adptStruct = {"CPU_# ???",0,0,0,0,AS_HOSTBUS_PLANAR,AS_BUSWIDTH_32BIT,&adaptNum};
+
+       // we need to add CPU nodes to the RM tree, unfortunately we cannot distinguish
+       // between a WPS restart and a reboot but we need to prevent adding additional
+       // nodes on WPS restart
+       // the only way out is to check the time since boot, if it is smaller than
+       // 90 sec (1.5 minutes) we assume it is a reboot and not a WPS restart
+       rc = DosQuerySysInfo(QSV_MS_COUNT,QSV_MS_COUNT,&ulBootTime,sizeof(ulBootTime));
+       rc += DosQuerySysInfo(QSV_NUMPROCESSORS,QSV_NUMPROCESSORS,&ulNum,sizeof(ulNum));
+       if ((NO_ERROR == rc) && (ulBootTime < 90000UL) ) {
+          // work around a compile issue
+          // we need to redefine this macro to return a ULONG value
+          // otherwise the 32-bit compiler will reject it
+          // and complain on using ADJ_HEADER_SIZE
+#undef FIELDOFFSET
+#define FIELDOFFSET(type, field)    ((ULONG)&(((type *)0)->field))
+
+
+          // there is a bug in RMCreateAdapter in that you HAVE TO
+          // specify at least one adjunct element,
+          // otherwise "RMCreateAdapter" will trap !
+          // we specify those adjunct structures that are also specified
+          // for the already existing node "CPU_0 ???"
+          adaptNum.pNextAdj            = &adaptModel;
+          adaptNum.AdjLength           = ADJ_HEADER_SIZE + sizeof(USHORT);
+          adaptNum.AdjType             = ADJ_ADAPTER_NUMBER;
+
+          adaptModel.pNextAdj          = NULL;
+          adaptModel.AdjLength         = ADJ_HEADER_SIZE + sizeof(USHORT);
+          adaptModel.AdjType           = ADJ_MODEL_INFO;
+          adaptModel.Adapter_Number    = 0xFC01;
+
+          hDriver = ReturnKernelDriverNode();
+
+          for (i=1;i<ulNum;i++) {
+             adaptNum.Adapter_Number      = i;
+
+             hAdapter = NULLHANDLE;
+             RMCreateAdapter(hDriver,&hAdapter,&adptStruct,NULLHANDLE,NULL);
+          } /* endfor */
+       } /* endif */
+    }
 }
 
 SOM_Scope void  SOMLINK wpclsUnInitData(M_WPHwManagerEx *somSelf)
 {
-    /* M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf); */
+    M_WPHwManagerExData *somThis = M_WPHwManagerExGetData(somSelf);
     M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsUnInitData");
 
     M_WPHwManagerEx_parent_M_WPHwManager_wpclsUnInitData(somSelf);
 
     /* unlock the WPDevice class object once so that the class DLL (PNP.DLL) can be unloaded */
     _WPDevice->wpclsDecUsage();
+
+    if (somThis->pUSBColl) {
+       delete somThis->pUSBColl;
+       somThis->pUSBColl = NULL;
+    } /* endif */
 }
 
 
@@ -664,7 +1010,7 @@ SOM_Scope ULONG  SOMLINK wpclsQueryDefaultView(M_WPHwManagerEx *somSelf)
     M_WPHwManagerExMethodDebug("M_WPHwManagerEx","wpclsQueryDefaultView");
 
     /* we want each created instance of the HW Manager to open in tree view */
-    /* it's the only view that actually makes sense ... */    
+    /* it's the only view that actually makes sense ... */
     return OPEN_TREE;
 }
 

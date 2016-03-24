@@ -1,0 +1,13 @@
+#ifndef OS2_INCLUDED
+   #include <os2.h>
+#endif
+
+#include <resources.h>
+
+DLGTEMPLATE DLGMAIN LOADONCALL MOVEABLE DISCARDABLE
+BEGIN
+    DIALOG  "", DLGMAIN, 12, 40, 261, 149, NOT FS_DLGBORDER | WS_VISIBLE
+    BEGIN
+        LTEXT           "Text Hallo", STATICTEXT, 2, 8, 255, 137, NOT WS_GROUP
+    END
+END

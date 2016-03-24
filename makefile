@@ -6,12 +6,15 @@
 
 .SUFFIXES:
 
-.SUFFIXES: .cpp .obj .idl .rc .res
+.SUFFIXES: .asm .cpp .obj .idl .rc .res
 
 !IFDEF DEBUG
+AFLAGS=+Od
 CFLAGS=-Ti
 LFLAGS=-de -db
+
 !ELSE
+AFLAGS=-Od
 CFLAGS=-O
 LFLAGS=
 !ENDIF
@@ -20,21 +23,47 @@ LFLAGS=
        @echo " Compile::SOM Compiler "
        sc.exe -C200000 -S200000 -sxc;xh;xih $<
 
+.asm.obj:
+       @echo " Assemble::Assembler "
+       alp.exe -Mb +Fl -Li -Lr +Ls +Lm $(AFLAGS) $<
+
 .cpp.obj:
        @echo " Compile::C++ Compiler "
        icc.exe -Q -Sp2 -D__IBMC__ -W2 $(CFLAGS) -Gm -Gd -Ge- -G5 -C $<
 
-hwman.dll: hwman.obj except.obj {$(LIB)}somtk.lib hwman.def
+.rc.res:
+       @echo " Compile::Resource Compiler "
+       rc.exe -n -r $<
+       
+
+LIBS = somtk.lib
+OBJS = hwman.obj devcpu.obj datacls.obj except.obj helpers.obj
+DEF  = hwman.def
+RES  = resources.res
+
+hwman.dll: $(OBJS) $(RES) $(DEF)
        @echo " Link::Linker "
-       -7 ilink.exe -nol -nobas $(LFLAGS) -dll -packc -packd -e:2 -m -o:$@ $**
+       -7 ilink.exe -nol -nobas $(LFLAGS) -dll -packc -packd -e:2 -m -o:$@ $(OBJS) $(LIBS) $(DEF)
+       rc.exe -n -x2 $(RES) $@
        dllrname.exe $@ CPPOM30=OS2OM30 /n /q
-       emxupd.exe $@ $(COMSPEC:CMD.EXE=DLL)
+       emxupd.exe $@ $(OS2_SHELL:CMD.EXE=DLL)
 
 hwman.obj: hwman.cpp wpcdrom.xh
 
 except.obj: except.cpp
 
+helpers.obj: helpers.asm
+
 hwman.cpp: hwman.idl
+
+devcpu.cpp: devcpu.idl
+
+datacls.cpp: datacls.idl
+
+devcpu.obj: devcpu.cpp
+
+resources.res: resources.rc resources.dlg
+
 
 # WPDevCDRom class:
 # the IDL file "wpcdrom.idl" (and consequently the public header file)

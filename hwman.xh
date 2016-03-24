@@ -52,6 +52,8 @@ class WPImageFile;
 class M_WPFileSystem;
 class M_WPFolder;
 class M_WPHwManager;
+class THAssoc;
+class somf_TAssoc;
 class M_WPHwManagerEx;
 
 /*
@@ -3308,6 +3310,13 @@ class M_WPHwManagerEx;
 
 #define M_WPHwManagerEx_MajorVersion 1
 #define M_WPHwManagerEx_MinorVersion 1
+
+/*
+ * Passthru lines: File: "C.xh", "before"
+ */
+
+#include <datacls.xh>
+
 
 /* C++ SOM defs */
 #include <somcls.xh>

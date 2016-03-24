@@ -1,0 +1,50 @@
+#ifndef devcpu_idl
+#define devcpu_idl
+
+#include <wpcpu.idl>
+
+interface M_WPDevCPUEx;
+
+interface WPDevCPUEx : WPDevCPU
+{
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion   = 1;
+      minorversion   = 2;
+      metaclass      = M_WPDevCPUEx;
+      callstyle      = oidl;
+      filestem       = devcpu;
+      dllname        = "hwman.dll";
+      somDefaultInit:init,override;
+      somDestruct:override;
+      wpAddDeviceDMA1Page:override;
+      wpAddDeviceIO1Page:override;
+      wpAddDeviceIRQ1Page:override;
+      wpAddDeviceMemory1Page:override;
+      wpAddSettingsPages:override;
+
+      passthru C_xh_before = ""
+      "#define INCL_PM"
+      "#define INCL_BASE"
+      "#include <os2.h>"
+      "";
+   };
+#endif
+};
+
+interface M_WPDevCPUEx: M_WPDevCPU
+{
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion   = 1;
+      minorversion   = 2;
+      callstyle      = oidl;
+      filestem       = devcpu;
+      dllname        = "hwman.dll";
+   };
+#endif
+};
+
+#endif

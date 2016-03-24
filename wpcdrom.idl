@@ -1,7 +1,7 @@
 #ifndef wpcdrom_idl
 #define wpcdrom_idl
 
-#include "wpdevice.idl"
+#include <wpdevice.idl>
 
 interface M_WPDevCDRom;
 

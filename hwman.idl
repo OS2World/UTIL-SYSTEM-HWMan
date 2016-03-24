@@ -2,6 +2,7 @@
 #define hwman_idl
 
 #include <wphwmgr.idl>
+#include <datacls.idl>
 
 typedef somToken PFN_GETUNIQUEID;
 typedef somToken PFN_GETPARENTID;
@@ -47,9 +48,9 @@ interface WPHwManagerEx : WPHwManager
         somDefaultInit              :init,override;
         somDestruct                 :override;
         wpPopulate                  :override;
-        wpInitData                   :override;
-        wpAddToObjUseList        :override;
-        wpDeleteFromObjUseList  :override;
+        wpInitData                  :override;
+        wpAddToObjUseList           :override;
+        wpDeleteFromObjUseList      :override;
 
 
         passthru C_xh_before = ""
@@ -127,7 +128,19 @@ interface WPHwManagerEx : WPHwManager
         "typedef ULONG (SOMLINK FN_WPRELEASEFINDMUTEXSEM)(WPHwManagerEx *somSelf);"
         "typedef FN_WPRELEASEFINDMUTEXSEM *PFN_WPRELEASEFINDMUTEXSEM;"
         "//add missing definition for RMEnumNodes: it was determined experimentally ..."
-        "APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USHORT dLen);"
+        "APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,ULONG dLen);"
+        ""
+        "#ifdef __cplusplus"
+        "extern \"C\" {"
+        "#endif"
+        "ULONG APIENTRY _DLL_InitTerm(ULONG modhandle,ULONG flag);"
+        "int _CRT_init(void);"
+        "void _CRT_term(void);"
+        "void __ctordtorInit(void);"
+        "void __ctordtorTerm(void);"
+        "#ifdef __cplusplus"
+        "}"
+        "#endif"
         "";
 
 
@@ -148,11 +161,13 @@ interface M_WPHwManagerEx : M_WPHwManager
         callstyle                     = oidl;
         filestem                      = hwman;
         dllname                      = "hwman.dll";
-        wpclsQueryStyle             :override;
-        wpclsQueryTitle             :override;
         wpclsInitData                :override;
         wpclsUnInitData             :override;
         wpclsQueryDefaultView   :override;
+
+        passthru C_xh_before = ""
+        "#include <datacls.xh>"
+        "";
 
         PFN_SETUNIQUEID wpSetUniqueID;
         PFN_SETPARENTID wpSetParentID;
@@ -173,6 +188,8 @@ interface M_WPHwManagerEx : M_WPHwManager
         PFN_WPRELEASEFOLDERMUTEXSEM wpReleaseFolderMutexSem;
         PFN_WPREQUESTFINDMUTEXSEM wpRequestFindMutexSem;
         PFN_WPRELEASEFINDMUTEXSEM wpReleaseFindMutexSem;
+
+        USBDeviceCollection pUSBColl;
     };
 #endif
 };

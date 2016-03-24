@@ -103,7 +103,19 @@ typedef FN_WPREQUESTFINDMUTEXSEM *PFN_WPREQUESTFINDMUTEXSEM;
 typedef ULONG (SOMLINK FN_WPRELEASEFINDMUTEXSEM)(WPHwManagerEx *somSelf);
 typedef FN_WPRELEASEFINDMUTEXSEM *PFN_WPRELEASEFINDMUTEXSEM;
 //add missing definition for RMEnumNodes: it was determined experimentally ...
-APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,USHORT dLen);
+APIRET CDECL FAR RMEnumNodes(PRM_ENUMNODES_PARM parm,PRM_ENUMNODES_DATA data,ULONG dLen);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+ULONG APIENTRY _DLL_InitTerm(ULONG modhandle,ULONG flag);
+int _CRT_init(void);
+void _CRT_term(void);
+void __ctordtorInit(void);
+void __ctordtorTerm(void);
+#ifdef __cplusplus
+}
+#endif
 
 
 #define WPHwManagerEx_MaxNoMethods 0
@@ -802,6 +814,7 @@ typedef struct {
 	PFN_WPRELEASEFOLDERMUTEXSEM wpReleaseFolderMutexSem;
 	PFN_WPREQUESTFINDMUTEXSEM wpRequestFindMutexSem;
 	PFN_WPRELEASEFINDMUTEXSEM wpReleaseFindMutexSem;
+	USBDeviceCollection* pUSBColl;
 } M_WPHwManagerExData;
 
 /*
@@ -839,6 +852,7 @@ typedef M_WPHwManagerExData* (SOMLINK * somTD_M_WPHwManagerEx_DataThunk)(void*);
   #define _wpReleaseFolderMutexSem (somThis->wpReleaseFolderMutexSem)
   #define _wpRequestFindMutexSem (somThis->wpRequestFindMutexSem)
   #define _wpReleaseFindMutexSem (somThis->wpReleaseFindMutexSem)
+  #define _pUSBColl (somThis->pUSBColl)
 #endif
 
 
@@ -979,8 +993,6 @@ typedef M_WPHwManagerExData* (SOMLINK * somTD_M_WPHwManagerEx_DataThunk)(void*);
   #define _somPrintSelf somSelf->somPrintSelf
   #define _somDumpSelf somSelf->somDumpSelf
   #define _somDumpSelfInt somSelf->somDumpSelfInt
-  #define _wpclsQueryStyle somSelf->wpclsQueryStyle
-  #define _wpclsQueryTitle somSelf->wpclsQueryTitle
   #define _wpclsInitData somSelf->wpclsInitData
   #define _wpclsUnInitData somSelf->wpclsUnInitData
   #define _wpclsQueryDefaultView somSelf->wpclsQueryDefaultView
@@ -997,84 +1009,6 @@ SOMEXTERN struct M_WPHwManagerExClassDataStructure SOMDLINK M_WPHwManagerExClass
  */
 SOMEXTERN struct M_WPHwManagerExCClassDataStructure SOMDLINK M_WPHwManagerExCClassData = {(somMethodTabs) NULL};
 
-
-/*
- * Overridden method: wpclsQueryStyle
- */
-SOM_Scope ULONG  SOMLINK wpclsQueryStyle(M_WPHwManagerEx *somSelf);
-static char *somMN_M_WPHwManagerExwpclsQueryStyle = "M_WPObject::wpclsQueryStyle";
-static somId somId_M_WPHwManagerExwpclsQueryStyle = &somMN_M_WPHwManagerExwpclsQueryStyle;
-#ifdef somId_wpclsQueryStyle
-#undef somId_wpclsQueryStyle
-#else
-#define somId_wpclsQueryStyle somId_M_WPHwManagerExwpclsQueryStyle
-#endif
-typedef ULONG   SOMLINK somTP_xih_M_WPHwManagerEx_wpclsQueryStyle(M_WPHwManagerEx *somSelf);
-typedef somTP_xih_M_WPHwManagerEx_wpclsQueryStyle *somTD_xih_M_WPHwManagerEx_wpclsQueryStyle;
-/* define the parent method call macro */
-static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle_resolved;
-#define M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle(somSelf) \
-  ((( somTD_xih_M_WPHwManagerEx_wpclsQueryStyle ) \
-      M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle_resolved) \
-	(somSelf))
-/* define a variety of (possibly ambiguous) short forms */
-#ifndef SOMGD_pmc_parent_wpclsQueryStyle
-  #ifdef parent_wpclsQueryStyle
-    #define SOMGD_pmc_parent_wpclsQueryStyle
-    #undef parent_wpclsQueryStyle
-  #else
-#define parent_wpclsQueryStyle M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle
-  #endif
-#endif
-#ifndef SOMGD_pmc_parent_M_WPHwManager_wpclsQueryStyle
-  #ifdef parent_M_WPHwManager_wpclsQueryStyle
-    #define SOMGD_pmc_parent_M_WPHwManager_wpclsQueryStyle
-    #undef parent_M_WPHwManager_wpclsQueryStyle
-  #else
-    #define parent_M_WPHwManager_wpclsQueryStyle M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle
-  #endif
-#endif
-#define M_WPHwManagerEx_parents_wpclsQueryStyle(somSelf) (\
-   M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle(somSelf))
-
-/*
- * Overridden method: wpclsQueryTitle
- */
-SOM_Scope PSZ  SOMLINK wpclsQueryTitle(M_WPHwManagerEx *somSelf);
-static char *somMN_M_WPHwManagerExwpclsQueryTitle = "M_WPObject::wpclsQueryTitle";
-static somId somId_M_WPHwManagerExwpclsQueryTitle = &somMN_M_WPHwManagerExwpclsQueryTitle;
-#ifdef somId_wpclsQueryTitle
-#undef somId_wpclsQueryTitle
-#else
-#define somId_wpclsQueryTitle somId_M_WPHwManagerExwpclsQueryTitle
-#endif
-typedef PSZ   SOMLINK somTP_xih_M_WPHwManagerEx_wpclsQueryTitle(M_WPHwManagerEx *somSelf);
-typedef somTP_xih_M_WPHwManagerEx_wpclsQueryTitle *somTD_xih_M_WPHwManagerEx_wpclsQueryTitle;
-/* define the parent method call macro */
-static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle_resolved;
-#define M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle(somSelf) \
-  ((( somTD_xih_M_WPHwManagerEx_wpclsQueryTitle ) \
-      M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle_resolved) \
-	(somSelf))
-/* define a variety of (possibly ambiguous) short forms */
-#ifndef SOMGD_pmc_parent_wpclsQueryTitle
-  #ifdef parent_wpclsQueryTitle
-    #define SOMGD_pmc_parent_wpclsQueryTitle
-    #undef parent_wpclsQueryTitle
-  #else
-#define parent_wpclsQueryTitle M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle
-  #endif
-#endif
-#ifndef SOMGD_pmc_parent_M_WPHwManager_wpclsQueryTitle
-  #ifdef parent_M_WPHwManager_wpclsQueryTitle
-    #define SOMGD_pmc_parent_M_WPHwManager_wpclsQueryTitle
-    #undef parent_M_WPHwManager_wpclsQueryTitle
-  #else
-    #define parent_M_WPHwManager_wpclsQueryTitle M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle
-  #endif
-#endif
-#define M_WPHwManagerEx_parents_wpclsQueryTitle(somSelf) (\
-   M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle(somSelf))
 
 /*
  * Overridden method: wpclsInitData
@@ -1202,10 +1136,6 @@ static somMethodProc* M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryDefaultView
  * Declare the Override Methods table.
  */
 static somOverrideMethod_t M_WPHwManagerExOM[] = {
-    {    &somId_M_WPHwManagerExwpclsQueryStyle,
-         (somMethodProc *) wpclsQueryStyle  },
-    {    &somId_M_WPHwManagerExwpclsQueryTitle,
-         (somMethodProc *) wpclsQueryTitle  },
     {    &somId_M_WPHwManagerExwpclsInitData,
          (somMethodProc *) wpclsInitData  },
     {    &somId_M_WPHwManagerExwpclsUnInitData,
@@ -1226,7 +1156,7 @@ static somId somPCM_WPHwManagerEx[] = {
 };
 
 static somStaticClassInfo M_WPHwManagerExSCI = {
-    4, 0, 5, 0, 0, 0, /* layout version 4 */ 
+    4, 0, 3, 0, 0, 0, /* layout version 4 */ 
     M_WPHwManagerEx_MajorVersion, M_WPHwManagerEx_MinorVersion,
     sizeof(M_WPHwManagerExData), M_WPHwManagerEx_MaxNoMethods, 1,
     &somCN_M_WPHwManagerEx,
@@ -1278,10 +1208,6 @@ SOMClass * SOMLINK M_WPHwManagerExNewClass (integer4 somtmajorVersion,
 	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsUnInitData);
     M_WPHwManagerEx_parent_M_WPHwManager_wpclsInitData_resolved = 
 	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsInitData);
-    M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryTitle_resolved = 
-	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsQueryTitle);
-    M_WPHwManagerEx_parent_M_WPHwManager_wpclsQueryStyle_resolved = 
-	somParentNumResolve(M_WPHwManagerExCClassData.parentMtab, 1, M_WPObjectClassData.wpclsQueryStyle);
     return result;
 }
 
