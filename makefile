@@ -11,7 +11,7 @@
 !IFDEF DEBUG
 AFLAGS=+Od
 CFLAGS=-Ti
-LFLAGS=-de -db
+LFLAGS=-de -db -br
 
 !ELSE
 AFLAGS=-Od

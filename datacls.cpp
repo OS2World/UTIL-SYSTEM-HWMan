@@ -554,24 +554,32 @@ SOM_Scope void SOMLINK RM_somDefaultInit(RMDeviceCollection *somSelf,
     DeviceDescriptor   desc;
     GETDEVINFODATA     info;
 
-    // whenever a RMDeviceCollection is created (new RMDeviceCollection)
-    // we query the list of RM devices nodes that are related to USB devices
-    // then we query the vendor and product id for that USB device
-    // we finally build up a relation between RM device node and USB vendor and product id
-    // that will ultimately allow us to query vendor and product string from the RM device node
-    APIRET rc = UsbQueryNumberDevices(&ulNumDevices);
-    for (i=1;i<=ulNumDevices;i++) {
- 
-       ulBufLen = sizeof(info);
-       APIRET rc1 = LOUCHAR(UsbQueryDeviceInfo(i,&ulBufLen,&info));
-       ulBufLen = sizeof(desc);
-       APIRET rc2 = LOUCHAR(UsbQueryDeviceReport(i,&ulBufLen,&desc));
-       if ((NO_ERROR == rc1) &&
-           ((NO_ERROR == rc2) || (ERROR_MORE_DATA == rc2))
-          ) {
-         somSelf->addRMDevice(ev,info.rmDevHandle,desc.idVendor,desc.idProduct);
-       } /* endif */
-    } /* endfor */
+    M_RMDeviceCollectionData *somMThis              = M_RMDeviceCollectionGetData(_RMDeviceCollection);
+    HMODULE hUSBMod                                 = somMThis->hUSBMod;
+    PFNUsbQueryNumberDevices UsbQueryNumberDevices  = somMThis->UsbQueryNumberDevices;
+    PFNUsbQueryDeviceInfo UsbQueryDeviceInfo        = somMThis->UsbQueryDeviceInfo;
+    PFNUsbQueryDeviceReport UsbQueryDeviceReport    = somMThis->UsbQueryDeviceReport;
+
+    if (hUSBMod && UsbQueryNumberDevices && UsbQueryDeviceInfo && UsbQueryDeviceReport) {
+       // whenever a RMDeviceCollection is created (new RMDeviceCollection)
+       // we query the list of RM devices nodes that are related to USB devices
+       // then we query the vendor and product id for that USB device
+       // we finally build up a relation between RM device node and USB vendor and product id
+       // that will ultimately allow us to query vendor and product string from the RM device node
+       APIRET rc = UsbQueryNumberDevices(&ulNumDevices);
+       for (i=1;i<=ulNumDevices;i++) {
+    
+          ulBufLen = sizeof(info);
+          APIRET rc1 = LOUCHAR(UsbQueryDeviceInfo(i,&ulBufLen,&info));
+          ulBufLen = sizeof(desc);
+          APIRET rc2 = LOUCHAR(UsbQueryDeviceReport(i,&ulBufLen,&desc));
+          if ((NO_ERROR == rc1) &&
+              ((NO_ERROR == rc2) || (ERROR_MORE_DATA == rc2))
+             ) {
+            somSelf->addRMDevice(ev,info.rmDevHandle,desc.idVendor,desc.idProduct);
+          } /* endif */
+       } /* endfor */
+    } /* endif */
 }
 
 
@@ -592,6 +600,62 @@ SOM_Scope void SOMLINK RM_somDestruct(RMDeviceCollection *somSelf,
     somSelf->somfDeleteAll(ev);
 
     RMDeviceCollection_EndDestructor;
+}
+
+
+
+SOM_Scope void SOMLINK M_RM_somDefaultInit(M_RMDeviceCollection *somSelf, 
+                                           som3InitCtrl* ctrl)
+{
+    M_RMDeviceCollectionData *somThis; /* set in BeginInitializer */
+    somInitCtrl globalCtrl;
+    somBooleanVector myMask;
+    M_RMDeviceCollectionMethodDebug("M_RMDeviceCollection","somDefaultInit");
+    M_RMDeviceCollection_BeginInitializer_somDefaultInit;
+
+    M_RMDeviceCollection_Init_SOMClass_somDefaultInit(somSelf, ctrl);
+
+    /*
+     * local M_RMDeviceCollection initialization code added by programmer
+     */
+
+    if (NULLHANDLE == somThis->hUSBMod)
+    {
+       if (NO_ERROR == DosLoadModule(NULL,0,"USBCALLS",&somThis->hUSBMod))
+       {
+          DosQueryProcAddr(somThis->hUSBMod,2,NULL,(PFN *)&somThis->UsbQueryNumberDevices);
+          DosQueryProcAddr(somThis->hUSBMod,4,NULL,(PFN *)&somThis->UsbQueryDeviceInfo);
+          DosQueryProcAddr(somThis->hUSBMod,1,NULL,(PFN *)&somThis->UsbQueryDeviceReport);
+       }
+       else
+       {
+          somThis->hUSBMod = NULLHANDLE;
+       }
+    }
+}
+
+SOM_Scope void SOMLINK M_RM_somDestruct(M_RMDeviceCollection *somSelf, 
+                                        octet doFree, som3DestructCtrl* ctrl)
+{
+    M_RMDeviceCollectionData *somThis; /* set in BeginDestructor */
+    somDestructCtrl globalCtrl;
+    somBooleanVector myMask;
+    M_RMDeviceCollectionMethodDebug("M_RMDeviceCollection","M_RM_somDestruct");
+    M_RMDeviceCollection_BeginDestructor;
+
+    /*
+     * local M_RMDeviceCollection deinitialization code added by programmer
+     */
+
+    if (somThis->hUSBMod) {
+       DosFreeModule(somThis->hUSBMod);
+       somThis->hUSBMod               = NULLHANDLE;
+       somThis->UsbQueryNumberDevices = NULL;
+       somThis->UsbQueryDeviceInfo    = NULL;
+       somThis->UsbQueryDeviceReport  = NULL;
+    } /* endif */
+
+    M_RMDeviceCollection_EndDestructor;
 }
 
 

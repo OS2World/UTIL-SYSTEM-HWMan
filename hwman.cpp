@@ -283,6 +283,8 @@ SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string
     SOM_IgnoreWarning(minorVersion);
     SOM_IgnoreWarning(className);
 
+    WinWaitForShell(WWFS_DESKTOPOPENED);
+
     KeyObjectNewClass(KeyObject_MajorVersion,KeyObject_MinorVersion);
     ProductObjectNewClass(ProductObject_MajorVersion,ProductObject_MinorVersion);
     VendorObjectNewClass(VendorObject_MajorVersion,VendorObject_MinorVersion);
@@ -664,7 +666,7 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                         instead of skipping these, we just make them invisible which is easier to manage
                         as then the objects exist and can be checked for but they won't be visible in any view
                     */
-                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;NOTVISIBLE=%s;",uniqueHandle,depth ? parentHandles[depth-1]: 0,fHide ? "YES" : "NO");
+                    sprintf(strBuffer,"UNIQUEID=%u;PARENTID=%u;NOTVISIBLE=%s;NORENAME=YES;",uniqueHandle,depth ? parentHandles[depth-1]: 0,fHide ? "YES" : "NO");
                     /* wpclsNew will also add to the folder content list (wpAddToContent is called) */
                     /* wpclsNew will also call wpCnrInsertObject on the new object for every view currently open */
                     newObj= (WPDevice *)classObj->wpclsNew(pszTitle,strBuffer,somSelf,TRUE);
@@ -690,7 +692,6 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                        newObj->wpSetTitle(strBuffer);
                     } /* endif */
 
-
                     /*
                         reset the title for objects of class "WPDevCPU"
                         to display the brand string of the CPU
@@ -699,19 +700,6 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                         cpuGetBrandString(strBuffer,sizeof(strBuffer));
                         newObj->wpSetTitle(strBuffer);
                     } /* endif */
-
-                    /*
-                        stupid enough, WPDevice class allows renaming of its objects,
-                        that means you can open the settings notebook for a device
-                        and delete all the titles ...
-                        we prevent this by setting the object style to OBJSTYLE_NORENAME
-                        the clean solution would be to implement a replacement
-                        class for WPDevice that uses "wpclsQueryStyle"
-                        to return bit CLSSTYLE_NEVERRENAME but that is just too
-                        much hassle for too little gain
-                    */
-                    newObj->wpModifyStyle(OBJSTYLE_NORENAME,OBJSTYLE_NORENAME);
-
 
                     somMThis->wpSetNodeType(newObj,nodeType);
                     somMThis->wpSetNodeBaseType(newObj,baseType);
@@ -811,17 +799,26 @@ SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf)
 SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf,
                                           PUSEITEM pUseItem)
 {
-    /* WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf); */
+    WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     WPHwManagerExMethodDebug("WPHwManagerEx","wpAddToObjUseList");
 
-    if (pUseItem->type == USAGE_OPENVIEW && !somSelf->wpFindViewItem(VIEW_CONTENTS | VIEW_DETAILS | VIEW_TREE,NULL)) {
-       /*
-            at this point we would normally need to call wpLockObject on somSelf
-            to ensure that it does not go dormant when it is used asychronously
-            from the secondary thread. However, when a view opens, the object
-            is locked once anyways, therefore there is no need to do it
-        */
-       _beginthread(RefreshThread,NULL,0x8000,somSelf);
+    if (pUseItem->type == USAGE_OPENVIEW) {
+       ULONG openViews = 0;
+       PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
+       while (pViewItem) {
+          openViews++;
+          pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
+       };
+
+       if (openViews == 0) {
+          /*
+               at this point we would normally need to call wpLockObject on somSelf
+               to ensure that it does not go dormant when it is used asychronously
+               from the secondary thread. However, when a view opens, the object
+               is locked once anyways, therefore there is no need to do it
+           */
+          _beginthread(RefreshThread,NULL,0x8000,somSelf);
+       }
     } /* endif */
 
     return (WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf,
@@ -834,8 +831,18 @@ SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     WPHwManagerExMethodDebug("WPHwManagerEx","wpDeleteFromObjUseList");
 
-    if (pUseItem->type == USAGE_OPENVIEW && !somSelf->wpFindViewItem(VIEW_CONTENTS | VIEW_DETAILS | VIEW_TREE,NULL)) {
-       WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
+    if (pUseItem->type == USAGE_OPENVIEW) {
+       ULONG openViews = 0;
+       PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
+       while (pViewItem) {
+          openViews++;
+          pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
+       };
+
+
+       if (openViews == 1 && somThis->hmqRefreshThread) {
+          WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
+       }
     } /* endif */
 
     return (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf,
@@ -973,7 +980,7 @@ SOM_Scope void  SOMLINK wpclsInitData(M_WPHwManagerEx *somSelf)
           adaptModel.pNextAdj          = NULL;
           adaptModel.AdjLength         = ADJ_HEADER_SIZE + sizeof(USHORT);
           adaptModel.AdjType           = ADJ_MODEL_INFO;
-          adaptModel.Adapter_Number    = 0xFC01;
+          adaptModel.Model_Info        = 0xFC01;
 
           hDriver = ReturnKernelDriverNode();
 

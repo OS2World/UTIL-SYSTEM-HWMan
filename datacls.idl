@@ -4,6 +4,13 @@
 #include <thash.idl>
 #include <thashitr.idl>
 #include <tclong.idl>
+#include <wptypes.idl> // for HMODULE typedef
+
+typedef somToken PFNUsbQueryNumberDevices;
+typedef somToken PFNUsbQueryDeviceInfo;
+typedef somToken PFNUsbQueryDeviceReport;
+
+interface M_RMDeviceCollection;
 
 interface KeyObject : somf_TCollectibleLong
 {
@@ -66,7 +73,7 @@ interface VendorObject : somf_MCollectible
       somDefaultInit: init,override;
       somDestruct: override;
       vendorName: noset,noget;
-      releaseorder: _get_vendorName,_set_vendorName,addVendor,addProduct,findProduct;
+      releaseorder: _get_vendorName,_set_vendorName,addProduct,findProduct;
 
       somf_THashTable products;
       ProductObject defaultProduct;
@@ -125,6 +132,7 @@ interface RMDeviceCollection : somf_THashTable
 #ifdef __SOMIDL__
    implementation {
       local;
+      metaclass    = M_RMDeviceCollection;
       majorversion = 2;
       minorversion = 1;
       callstyle    = idl;
@@ -171,13 +179,38 @@ interface RMDeviceCollection : somf_THashTable
       "}  DeviceDescriptor;"
       "#pragma pack()"
       ""
-      "APIRET APIENTRY UsbQueryNumberDevices( ULONG *pulNumDev);"
-      "APIRET APIENTRY UsbQueryDeviceInfo( ULONG ulDevNumber,ULONG *pulBufLen,GETDEVINFODATA *pucData);"
-      "APIRET APIENTRY UsbQueryDeviceReport( ULONG ulDevNumber,ULONG *pulBufLen,DeviceDescriptor *pucData);"
+      "typedef APIRET (APIENTRY FNUsbQueryNumberDevices)( ULONG *pulNumDev);"
+      "typedef FNUsbQueryNumberDevices *PFNUsbQueryNumberDevices;"
+      "typedef APIRET (APIENTRY FNUsbQueryDeviceInfo)( ULONG ulDevNumber,ULONG *pulBufLen,GETDEVINFODATA *pucData);"
+      "typedef FNUsbQueryDeviceInfo *PFNUsbQueryDeviceInfo;"
+      "typedef APIRET (APIENTRY FNUsbQueryDeviceReport)( ULONG ulDevNumber,ULONG *pulBufLen,DeviceDescriptor *pucData);"
+      "typedef FNUsbQueryDeviceReport *PFNUsbQueryDeviceReport;"
+      ""
       "";
 
    };
 #endif
+};
+
+interface M_RMDeviceCollection : SOMClass
+{
+#ifdef __SOMIDL__
+   implementation {
+      local;
+      majorversion = 2;
+      minorversion = 1;
+      callstyle    = idl;
+      functionprefix = M_RM_;
+      dllname        = "hwman.dll";
+      somDefaultInit: init,override;
+      somDestruct: override;
+
+      HMODULE hUSBMod;
+      PFNUsbQueryNumberDevices UsbQueryNumberDevices;
+      PFNUsbQueryDeviceInfo UsbQueryDeviceInfo;
+      PFNUsbQueryDeviceReport UsbQueryDeviceReport;
+   };
+#endif	
 };
 
 #endif

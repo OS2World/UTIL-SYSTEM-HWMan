@@ -981,7 +981,7 @@ static somStaticClassInfo VendorObjectSCI = {
     0, /* no sci development level check */
     0, /* number of SelectInheritedMethods */
     0, /* no SelectInheritedMethods */
-    5, /* number of classdata entries */
+    4, /* number of classdata entries */
     0, /* no list provided currently */
     0, /* number of migrated methods */
     0, /* no migrated method implementations */
@@ -1918,9 +1918,13 @@ typedef struct _device_descriptor_
 }  DeviceDescriptor;
 #pragma pack()
 
-APIRET APIENTRY UsbQueryNumberDevices( ULONG *pulNumDev);
-APIRET APIENTRY UsbQueryDeviceInfo( ULONG ulDevNumber,ULONG *pulBufLen,GETDEVINFODATA *pucData);
-APIRET APIENTRY UsbQueryDeviceReport( ULONG ulDevNumber,ULONG *pulBufLen,DeviceDescriptor *pucData);
+typedef APIRET (APIENTRY FNUsbQueryNumberDevices)( ULONG *pulNumDev);
+typedef FNUsbQueryNumberDevices *PFNUsbQueryNumberDevices;
+typedef APIRET (APIENTRY FNUsbQueryDeviceInfo)( ULONG ulDevNumber,ULONG *pulBufLen,GETDEVINFODATA *pucData);
+typedef FNUsbQueryDeviceInfo *PFNUsbQueryDeviceInfo;
+typedef APIRET (APIENTRY FNUsbQueryDeviceReport)( ULONG ulDevNumber,ULONG *pulBufLen,DeviceDescriptor *pucData);
+typedef FNUsbQueryDeviceReport *PFNUsbQueryDeviceReport;
+
 
 
 #define RMDeviceCollection_MaxNoMethods 3
@@ -1944,6 +1948,9 @@ typedef void RMDeviceCollectionData;
  */
 #ifndef RMDeviceCollectionMethodDebug
    #define RMDeviceCollectionMethodDebug(c,m) SOMMethodDebug(c,m)
+#endif
+#ifndef M_RMDeviceCollection_Class_Source
+#define M_RMDeviceCollection_Class_Source
 #endif
 
 /*
@@ -2020,7 +2027,7 @@ typedef void RMDeviceCollectionData;
 /*
  * -- The RMDeviceCollection ClassData Structure
  */
-SOMEXTERN struct RMDeviceCollectionClassDataStructure SOMDLINK RMDeviceCollectionClassData = {(SOMClass *) NULL};
+SOMEXTERN struct RMDeviceCollectionClassDataStructure SOMDLINK RMDeviceCollectionClassData = {(M_RMDeviceCollection *) NULL};
 
 /*
  * -- The auxiliary RMDeviceCollection ClassData structure
@@ -2165,6 +2172,7 @@ static somOverrideMethod_t RMDeviceCollectionOM[] = {
  *  class Ids
  */
 static char * somCN_RMDeviceCollection = "RMDeviceCollection";
+static char * somEMC_RMDeviceCollection = "M_RMDeviceCollection";
 static char * somPCN_RMDeviceCollection_somf_THashTable = "somf_THashTable";
 
 static somId somPCRMDeviceCollection[] = {
@@ -2176,7 +2184,7 @@ static somStaticClassInfo RMDeviceCollectionSCI = {
     RMDeviceCollection_MajorVersion, RMDeviceCollection_MinorVersion,
     0, RMDeviceCollection_MaxNoMethods, 1,
     &somCN_RMDeviceCollection,
-    (somId) NULL, 1,
+    &somEMC_RMDeviceCollection, 0,
     somPCRMDeviceCollection,
     (somClassDataStructure *) &RMDeviceCollectionClassData,
     (somCClassDataStructure *) &RMDeviceCollectionCClassData,
@@ -2210,14 +2218,16 @@ static somStaticClassInfo RMDeviceCollectionSCI = {
  * Class Creation and Initialization
  */
 
-SOMClass * SOMLINK RMDeviceCollectionNewClass (integer4 somtmajorVersion,
+M_RMDeviceCollection * SOMLINK RMDeviceCollectionNewClass (integer4 somtmajorVersion,
 		integer4 somtminorVersion)
 {
-    SOMClass *result;
+    M_RMDeviceCollection *result;
     if (_RMDeviceCollection && _RMDeviceCollection->somCheckVersion(somtmajorVersion, somtminorVersion))
-          return ((SOMClass*)((void*)_RMDeviceCollection));
+          return ((M_RMDeviceCollection*)((void*)_RMDeviceCollection));
     somf_THashTableNewClass(somf_THashTable_MajorVersion,somf_THashTable_MinorVersion);	/* static reference */
-    result = (SOMClass*)((void*)somBuildClass(0xFFFFFFFF,&RMDeviceCollectionSCI, somtmajorVersion, somtminorVersion));
+    /* Explicit metaclass, so get it */ 
+    M_RMDeviceCollectionNewClass(M_RMDeviceCollection_MajorVersion,M_RMDeviceCollection_MinorVersion);	/* static reference */
+    result = (M_RMDeviceCollection*)((void*)somBuildClass(0xFFFFFFFF,&RMDeviceCollectionSCI, somtmajorVersion, somtminorVersion));
     return result;
 }
 
@@ -2267,3 +2277,325 @@ SOMClass * SOMLINK RMDeviceCollectionNewClass (integer4 somtmajorVersion,
 #endif /* Primary Implementation Support */
 
 #endif       /* SOM_RMDeviceCollection_xih */
+
+/*
+ * -- By default, for classes declared using IDL,
+ * -- this emitter doesn't define redispatch/apply stubs.
+ * -- Instead, it requests that the SOM kernel produce them.
+ * -- To override this default, use the "notc" modifier.
+ */
+
+#ifndef SOM_M_RMDeviceCollection_xih
+#define SOM_M_RMDeviceCollection_xih
+
+#include <somcls.xh>
+#include <somcm.xh>
+
+#ifndef SOM_M_RMDeviceCollection_xh
+#include <datacls.xh>
+#endif
+
+/*
+ * Set the scope of methods functions
+ */
+#ifndef SOM_Scope
+#define SOM_Scope extern "C"
+#endif
+
+#define M_RMDeviceCollection_MaxNoMethods 0
+
+/*
+ * -- Instance Data
+ */
+typedef struct {
+	HMODULE hUSBMod;
+	PFNUsbQueryNumberDevices UsbQueryNumberDevices;
+	PFNUsbQueryDeviceInfo UsbQueryDeviceInfo;
+	PFNUsbQueryDeviceReport UsbQueryDeviceReport;
+} M_RMDeviceCollectionData;
+
+/*
+ * -- Getdata Macro
+ */
+
+/*
+ * -- This emitter treats Data Tokens as Thunks by default.
+ * -- Use the sc modifier "nothunks" to override this default.
+ */
+typedef M_RMDeviceCollectionData* (SOMLINK * somTD_M_RMDeviceCollection_DataThunk)(void*);
+#define M_RMDeviceCollectionGetData(somSelf) \
+   (((somTD_M_RMDeviceCollection_DataThunk)(M_RMDeviceCollectionCClassData.instanceDataToken))(somSelf))
+
+/*
+ * -- Instance Data Access Macros for use in Method Procedures
+ */
+#ifdef VARIABLE_MACROS
+  #define _hUSBMod (somThis->hUSBMod)
+  #define _UsbQueryNumberDevices (somThis->UsbQueryNumberDevices)
+  #define _UsbQueryDeviceInfo (somThis->UsbQueryDeviceInfo)
+  #define _UsbQueryDeviceReport (somThis->UsbQueryDeviceReport)
+#endif
+
+
+/*
+ * -- Primary Implementation File Support
+ */
+#if (defined(RMDeviceCollection_Class_Source) || defined(M_RMDeviceCollection_Class_Source) || defined(SOM_Module_datacls_Source))
+
+/*
+ * Trace/Debug macro
+ */
+#ifndef M_RMDeviceCollectionMethodDebug
+   #define M_RMDeviceCollectionMethodDebug(c,m) SOMMethodDebug(c,m)
+#endif
+
+/*
+ * -- Method Macros for use in Method Procedures
+ */
+#ifdef METHOD_MACROS
+  #define __get_somDataAlignment somSelf->_get_somDataAlignment
+  #define __get_somInstanceDataOffsets somSelf->_get_somInstanceDataOffsets
+  #define __get_somDirectInitClasses somSelf->_get_somDirectInitClasses
+  #define _somNew somSelf->somNew
+  #define _somNewNoInit somSelf->somNewNoInit
+  #define _somRenew somSelf->somRenew
+  #define _somRenewNoInit somSelf->somRenewNoInit
+  #define _somRenewNoZero somSelf->somRenewNoZero
+  #define _somRenewNoInitNoZero somSelf->somRenewNoInitNoZero
+  #define _somAllocate somSelf->somAllocate
+  #define _somDeallocate somSelf->somDeallocate
+  #define _somInitClass somSelf->somInitClass
+  #define _somInitMIClass somSelf->somInitMIClass
+  #define _somAddStaticMethod somSelf->somAddStaticMethod
+  #define _somAddDynamicMethod somSelf->somAddDynamicMethod
+  #define _somOverrideSMethod somSelf->somOverrideSMethod
+  #define _somClassReady somSelf->somClassReady
+  #define _somGetApplyStub somSelf->somGetApplyStub
+  #define _somGetClassData somSelf->somGetClassData
+  #define _somSetClassData somSelf->somSetClassData
+  #define _somGetClassMtab somSelf->somGetClassMtab
+  #define _somGetInstanceOffset somSelf->somGetInstanceOffset
+  #define _somGetInstancePartSize somSelf->somGetInstancePartSize
+  #define _somGetInstanceSize somSelf->somGetInstanceSize
+  #define _somGetInstanceToken somSelf->somGetInstanceToken
+  #define _somGetMemberToken somSelf->somGetMemberToken
+  #define _somGetMethodData somSelf->somGetMethodData
+  #define _somGetRdStub somSelf->somGetRdStub
+  #define _somGetMethodDescriptor somSelf->somGetMethodDescriptor
+  #define _somGetMethodIndex somSelf->somGetMethodIndex
+  #define _somGetMethodToken somSelf->somGetMethodToken
+  #define _somGetName somSelf->somGetName
+  #define _somGetNthMethodData somSelf->somGetNthMethodData
+  #define _somGetNthMethodInfo somSelf->somGetNthMethodInfo
+  #define _somGetNumMethods somSelf->somGetNumMethods
+  #define _somGetNumStaticMethods somSelf->somGetNumStaticMethods
+  #define _somGetParent somSelf->somGetParent
+  #define _somGetParents somSelf->somGetParents
+  #define _somGetVersionNumbers somSelf->somGetVersionNumbers
+  #define _somFindMethod somSelf->somFindMethod
+  #define _somFindMethodOk somSelf->somFindMethodOk
+  #define _somFindSMethod somSelf->somFindSMethod
+  #define _somFindSMethodOk somSelf->somFindSMethodOk
+  #define _somLookupMethod somSelf->somLookupMethod
+  #define _somCheckVersion somSelf->somCheckVersion
+  #define _somDescendedFrom somSelf->somDescendedFrom
+  #define _somSupportsMethod somSelf->somSupportsMethod
+  #define _somDefinedMethod somSelf->somDefinedMethod
+  #define _somOverrideMtab somSelf->somOverrideMtab
+  #define _somDefaultInit somSelf->somDefaultInit
+  #define _somDestruct somSelf->somDestruct
+  #define _somDefaultCopyInit somSelf->somDefaultCopyInit
+  #define _somDefaultAssign somSelf->somDefaultAssign
+  #define _somDefaultConstCopyInit somSelf->somDefaultConstCopyInit
+  #define _somDefaultVCopyInit somSelf->somDefaultVCopyInit
+  #define _somDefaultConstVCopyInit somSelf->somDefaultConstVCopyInit
+  #define _somDefaultConstAssign somSelf->somDefaultConstAssign
+  #define _somDefaultVAssign somSelf->somDefaultVAssign
+  #define _somDefaultConstVAssign somSelf->somDefaultConstVAssign
+  #define _somInit somSelf->somInit
+  #define _somFree somSelf->somFree
+  #define _somUninit somSelf->somUninit
+  #define _somGetClass somSelf->somGetClass
+  #define _somGetClassName somSelf->somGetClassName
+  #define _somGetSize somSelf->somGetSize
+  #define _somIsA somSelf->somIsA
+  #define _somIsInstanceOf somSelf->somIsInstanceOf
+  #define _somRespondsTo somSelf->somRespondsTo
+  #define _somDispatch somSelf->somDispatch
+  #define _somClassDispatch somSelf->somClassDispatch
+  #define _somCastObj somSelf->somCastObj
+  #define _somResetObj somSelf->somResetObj
+  #define _somDispatchV somSelf->somDispatchV
+  #define _somDispatchL somSelf->somDispatchL
+  #define _somDispatchA somSelf->somDispatchA
+  #define _somDispatchD somSelf->somDispatchD
+  #define _somPrintSelf somSelf->somPrintSelf
+  #define _somDumpSelf somSelf->somDumpSelf
+  #define _somDumpSelfInt somSelf->somDumpSelfInt
+  #define _somDefaultInit somSelf->somDefaultInit
+  #define _somDestruct somSelf->somDestruct
+#endif
+
+
+/*
+ * -- The M_RMDeviceCollection ClassData Structure
+ */
+SOMEXTERN struct M_RMDeviceCollectionClassDataStructure SOMDLINK M_RMDeviceCollectionClassData = {(SOMClass *) NULL};
+
+/*
+ * -- The auxiliary M_RMDeviceCollection ClassData structure
+ */
+SOMEXTERN struct M_RMDeviceCollectionCClassDataStructure SOMDLINK M_RMDeviceCollectionCClassData = {(somMethodTabs) NULL};
+
+
+/*
+ * Overridden method: somDefaultInit
+ */
+SOM_Scope void  SOMLINK M_RM_somDefaultInit(M_RMDeviceCollection *somSelf,
+		som3InitCtrl* ctrl);
+static char *somMN_M_RMDeviceCollectionsomDefaultInit = "SOMObject::somDefaultInit";
+static somId somId_M_RMDeviceCollectionsomDefaultInit = &somMN_M_RMDeviceCollectionsomDefaultInit;
+#ifdef somId_somDefaultInit
+#undef somId_somDefaultInit
+#else
+#define somId_somDefaultInit somId_M_RMDeviceCollectionsomDefaultInit
+#endif
+
+/*
+ * Overridden method: somDestruct
+ */
+SOM_Scope void  SOMLINK M_RM_somDestruct(M_RMDeviceCollection *somSelf,
+		octet doFree,
+		som3DestructCtrl* ctrl);
+static char *somMN_M_RMDeviceCollectionsomDestruct = "SOMObject::somDestruct";
+static somId somId_M_RMDeviceCollectionsomDestruct = &somMN_M_RMDeviceCollectionsomDestruct;
+#ifdef somId_somDestruct
+#undef somId_somDestruct
+#else
+#define somId_somDestruct somId_M_RMDeviceCollectionsomDestruct
+#endif
+
+/*
+ * -- Routines and Structures to create the class object
+ */
+
+
+/*
+ * Declare the Override Methods table.
+ */
+static somOverrideMethod_t M_RMDeviceCollectionOM[] = {
+    {    &somId_M_RMDeviceCollectionsomDefaultInit,
+         (somMethodProc *) M_RM_somDefaultInit  },
+    {    &somId_M_RMDeviceCollectionsomDestruct,
+         (somMethodProc *) M_RM_somDestruct  },
+};
+
+
+/*
+ *  class Ids
+ */
+static char * somCN_M_RMDeviceCollection = "M_RMDeviceCollection";
+static char * somPCN_M_RMDeviceCollection_SOMClass = "SOMClass";
+
+static somId somPCM_RMDeviceCollection[] = {
+    &somPCN_M_RMDeviceCollection_SOMClass,
+};
+
+static somStaticClassInfo M_RMDeviceCollectionSCI = {
+    4, 0, 2, 0, 0, 0, /* layout version 4 */ 
+    M_RMDeviceCollection_MajorVersion, M_RMDeviceCollection_MinorVersion,
+    sizeof(M_RMDeviceCollectionData), M_RMDeviceCollection_MaxNoMethods, 1,
+    &somCN_M_RMDeviceCollection,
+    (somId) NULL, 1,
+    somPCM_RMDeviceCollection,
+    (somClassDataStructure *) &M_RMDeviceCollectionClassData,
+    (somCClassDataStructure *) &M_RMDeviceCollectionCClassData,
+    (somStaticMethod_t *) NULL, M_RMDeviceCollectionOM,
+    (char *) NULL,
+    (somNonInternalData_t *) NULL,
+   (somProcMethods_t *) NULL,
+    (somVarargsFuncs_t *) NULL,
+    (somTP_somClassInitFunc *) NULL,
+    4, /* type code alignment */
+    -1, /* use parents as DirectInitClasses */
+    0, /* no explicit DirectInitClasses */
+    0, /* number of general methods */
+    (somMethods_t *) NULL,
+    0, /* no public data offset */
+    0, /* no sci development level check */
+    0, /* number of SelectInheritedMethods */
+    0, /* no SelectInheritedMethods */
+    0, /* number of classdata entries */
+    0, /* no list provided currently */
+    0, /* number of migrated methods */
+    0, /* no migrated method implementations */
+    0, /* number of initializers */
+    0, /* no initializers */
+    0, /* not DTS a class */
+    0, /* no dynamically computed info */
+};
+
+
+/*
+ * Class Creation and Initialization
+ */
+
+SOMClass * SOMLINK M_RMDeviceCollectionNewClass (integer4 somtmajorVersion,
+		integer4 somtminorVersion)
+{
+    SOMClass *result;
+    if (_M_RMDeviceCollection && _M_RMDeviceCollection->somCheckVersion(somtmajorVersion, somtminorVersion))
+          return ((SOMClass*)((void*)_M_RMDeviceCollection));
+    SOMClassNewClass(SOMClass_MajorVersion,SOMClass_MinorVersion);	/* static reference */
+    result = (SOMClass*)((void*)somBuildClass(0xFFFFFFFF,&M_RMDeviceCollectionSCI, somtmajorVersion, somtminorVersion));
+    return result;
+}
+
+/*
+ * Functions for attributes.
+ */
+
+/*
+ * Macros for initializer/destructor entry/exit
+ */
+#define M_RMDeviceCollection_BeginInitializer_somDefaultInit \
+   if (!ctrl) { \
+      ctrl = &globalCtrl; \
+      memcpy(ctrl,&(((somParentMtabStructPtr)M_RMDeviceCollectionCClassData.parentMtab)->initCtrl),sizeof(somInitCtrl)); \
+   } \
+   myMask = ctrl->mask; \
+   somThis = (M_RMDeviceCollectionData*)((char*)somSelf + ctrl->info->dataOffset);\
+   ctrl->info = (somInitInfo*)(ctrl->infoSize + (char*)(ctrl->info)); \
+   ctrl->mask += 1;
+#define M_RMDeviceCollection_BeginDestructor \
+   if (!ctrl) { \
+      ctrl = &globalCtrl; \
+      memcpy(ctrl,&(((somParentMtabStructPtr)M_RMDeviceCollectionCClassData.parentMtab)->destructCtrl),sizeof(somDestructCtrl)); \
+   } \
+   somThis = (M_RMDeviceCollectionData*)((char*)somSelf + ctrl->info->dataOffset);\
+   myMask = ctrl->mask; 
+#define M_RMDeviceCollection_EndDestructor \
+   ctrl->info = (somDestructInfo*)(ctrl->infoSize + (char*)(ctrl->info)); \
+   ctrl->mask += 1; \
+   M_RMDeviceCollection_DeInit_SOMClass_somDestruct(somSelf,0,ctrl); \
+   if (doFree) _M_RMDeviceCollection->somDeallocate((string)somSelf);
+
+/*
+ * Ancestor_Init/DeInit Macros
+ */
+
+/* ...for SOMClass */
+#define M_RMDeviceCollection_Init_SOMClass_somDefaultInit(somSelf, ctrl) \
+        if (myMask[0]&1) \
+           ((somTD_SOMObject_somDefaultInit) \
+               ctrl->info->defaultInit) \
+                   ((SOMObject *)((void *) somSelf), ctrl)
+#define M_RMDeviceCollection_DeInit_SOMClass_somDestruct(somSelf, doFree, ctrl) \
+        if (myMask[0]&1) \
+           ((somTD_SOMObject_somDestruct) \
+               ctrl->info->defaultDestruct) \
+                   ((SOMObject *)((void *) somSelf), 0, ctrl)
+
+#endif /* Primary Implementation Support */
+
+#endif       /* SOM_M_RMDeviceCollection_xih */

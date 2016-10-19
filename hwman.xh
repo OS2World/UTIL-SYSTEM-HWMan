@@ -54,6 +54,7 @@ class M_WPFolder;
 class M_WPHwManager;
 class THAssoc;
 class somf_TAssoc;
+class M_RMDeviceCollection;
 class M_WPHwManagerEx;
 
 /*

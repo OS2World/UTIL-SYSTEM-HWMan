@@ -27,6 +27,7 @@ typedef somToken PFN_WPREQUESTFOLDERMUTEXSEM;
 typedef somToken PFN_WPRELEASEFOLDERMUTEXSEM;
 typedef somToken PFN_WPREQUESTFINDMUTEXSEM;
 typedef somToken PFN_WPRELEASEFINDMUTEXSEM;
+typedef somToken TID;
 typedef somToken HMQ;
 
 
@@ -142,7 +143,6 @@ interface WPHwManagerEx : WPHwManager
         "}"
         "#endif"
         "";
-
 
         HMQ hmqRefreshThread;
     };
