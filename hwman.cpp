@@ -73,7 +73,7 @@ HDRIVER ReturnKernelDriverNode(void)
    for (i=0;i<pNodes->NumEntries ;i++ ) {
       hDriver = pNodes->NodeEntry[i].RMHandle;
       rc = RMGetNodeInfo(hDriver,pDrvNode,sizeof(drvBuf));
-      if (0 == strcmp("OS2KRNL",pDrvNode->RMNode.pDriverNode->DrvrName)) {
+      if ((0 == strcmp("OS2KRNL",pDrvNode->RMNode.pDriverNode->DrvrName)) || (0 == strcmp("OS4KRNL",pDrvNode->RMNode.pDriverNode->DrvrName))) {
          break;
       } /* endif */
    } /* endfor */
@@ -262,9 +262,6 @@ somToken SOMLINK MyRealloc(somToken memory,size_t nbytes)
    return realloc(memory,nbytes);
 }
 
-
-
-
 /*
     some oddities:
     1) KeyObject,ProductObject,VendorObject,RMDeviceObject,USBDeviceColleciton,RMDeviceCollection
@@ -283,8 +280,6 @@ SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string
     SOM_IgnoreWarning(minorVersion);
     SOM_IgnoreWarning(className);
 
-    WinWaitForShell(WWFS_DESKTOPOPENED);
-
     KeyObjectNewClass(KeyObject_MajorVersion,KeyObject_MinorVersion);
     ProductObjectNewClass(ProductObject_MajorVersion,ProductObject_MinorVersion);
     VendorObjectNewClass(VendorObject_MajorVersion,VendorObject_MinorVersion);
@@ -292,6 +287,7 @@ SOMEXTERN VOID SOMLINK SOMInitModule(long majorVersion,long minorVersion, string
     USBDeviceCollectionNewClass(USBDeviceCollection_MajorVersion,USBDeviceCollection_MinorVersion);
     RMDeviceCollectionNewClass(RMDeviceCollection_MajorVersion,RMDeviceCollection_MinorVersion);
     WPDevCPUExNewClass(WPDevCPUEx_MajorVersion,WPDevCPUEx_MinorVersion);
+    WPHwManagerExNewClass(WPHwManagerEx_MajorVersion,WPHwManagerEx_MinorVersion);
     return;
 }
 
