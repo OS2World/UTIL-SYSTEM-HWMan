@@ -5,7 +5,7 @@
 ;      SOM Precompiler somipc: 2.29.1.17
 ;      SOM Emitter emitdef: 2.47
 LIBRARY hwman INITINSTANCE TERMINSTANCE
-DESCRIPTION '@#Lars Erdmann:12.0.1#@##1## 2017/01/10 01:43:49      Standbein ::::1::0@@WPHwManagerEx Class Library'
+DESCRIPTION '@#Lars Erdmann:16.0.1#@##1## 2020/04/18 14:53:00      Standbein ::::1::0@@WPHwManagerEx Class Library'
 PROTMODE
 DATA MULTIPLE NONSHARED LOADONCALL
 EXPORTS

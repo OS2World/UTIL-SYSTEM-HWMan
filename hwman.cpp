@@ -86,6 +86,7 @@ HDRIVER ReturnKernelDriverNode(void)
 
 #define MEMSIZE 1024UL*128UL // allocate in chunks of 128 kB
 Heap_t gHeap = NULL;
+PVOID  gPtr  = NULL;
 
 void * _LNK_CONV AllocateMoreMemory(Heap_t, size_t *size, int *clean)
 {
@@ -165,16 +166,15 @@ ULONG APIENTRY _DLL_InitTerm(ULONG hMod,ULONG flag)
 #endif
 
       if (!gHeap) {
-         PVOID ptr = NULL;
          // allocate a large chunk of memory in high memory (OBJ_ANY attribute)
-         rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE|OBJ_ANY);
+         rc = DosAllocMem(&gPtr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE|OBJ_ANY);
          if (NO_ERROR != rc) {
-            ptr = NULL;
-            rc = DosAllocMem(&ptr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE);
+            gPtr = NULL;
+            rc = DosAllocMem(&gPtr,MEMSIZE,PAG_COMMIT|PAG_READ|PAG_WRITE);
          }
-         if ((NO_ERROR == rc) && ptr) {
+         if ((NO_ERROR == rc) && gPtr) {
             // create a private heap with the memory just allocated
-            gHeap = _ucreate(ptr,MEMSIZE,_BLOCK_CLEAN,_HEAP_REGULAR,AllocateMoreMemory,ReleaseMemory);
+            gHeap = _ucreate(gPtr,MEMSIZE,_BLOCK_CLEAN,_HEAP_REGULAR,AllocateMoreMemory,ReleaseMemory);
             return 1;
          }
          else {
@@ -191,7 +191,9 @@ ULONG APIENTRY _DLL_InitTerm(ULONG hMod,ULONG flag)
          // destroy the private heap
          _uclose(gHeap);
          _udestroy(gHeap,_FORCE);
-         // free the large chunk of memory
+         // free initial chunk of memory
+         DosFreeMem(gPtr);
+         gPtr = NULL;
          gHeap = NULL;
       }
 
@@ -465,8 +467,8 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
         */
         if ((rcFolderSemSuccess = somMThis->wpRequestFolderMutexSem(somSelf,1000)) == NO_ERROR) {
 
-            somSelf->wpModifyFldrFlags( FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,
-                                                  FOI_POPULATEINPROGRESS);
+            somSelf->wpModifyFldrFlags( FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS|FOI_REFRESHINPROGRESS,
+                                                  FOI_POPULATEINPROGRESS|FOI_REFRESHINPROGRESS);
 
 
             /* first for every existing object we check if it (still) exists in the RM tree */
@@ -742,21 +744,9 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
                } /* endif */
             } /* endfor */
 
-            /*
-                the wpPopulate implementation of WPFolder does a whole bunch of undocumented
-                things so that view update on folder population will actually work
-                WPHwManager inherits from WPFolder but we cannot call WPHwManager's wpPopulate
-                method because we want to replace part of its implementation with our own
-                that's why we cast our object to WPFolder in order to call the WPFolder implemenation
-                of wpPopulate
-                after we have called WPFolders implementation of wpPopulate we cast back to our own
-                class so that we can continue processing as if nothing has happened
-            */
-            somSelf->somCastObj(_WPFolder);
-            fRc = somSelf->wpPopulate(ulReserved,pszPath,fFoldersOnly);
-            somSelf->somResetObj();
+            fRc = (WPHwManagerEx_parent_WPHwManager_wpPopulate(somSelf,ulReserved,pszPath,fFoldersOnly));
 
-            somSelf->wpModifyFldrFlags(FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS,FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS);
+            somSelf->wpModifyFldrFlags(FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS|FOI_POPULATEINPROGRESS|FOI_REFRESHINPROGRESS,FOI_POPULATEDWITHALL|FOI_POPULATEDWITHFOLDERS);
         }
         ENDTRY(exc2);
 
@@ -779,9 +769,6 @@ SOM_Scope BOOL  SOMLINK wpPopulate(WPHwManagerEx *somSelf, ULONG ulReserved,
     return fRc;
 }
 
-/*
- * The prototype for wpInitData was replaced by the following prototype:
- */
 SOM_Scope void  SOMLINK wpInitData(WPHwManagerEx *somSelf)
 {
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
@@ -797,24 +784,34 @@ SOM_Scope BOOL  SOMLINK wpAddToObjUseList(WPHwManagerEx *somSelf,
 {
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     WPHwManagerExMethodDebug("WPHwManagerEx","wpAddToObjUseList");
+    BOOL fSem = FALSE;
 
-    if (pUseItem->type == USAGE_OPENVIEW) {
-       ULONG openViews = 0;
-       PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
-       while (pViewItem) {
-          openViews++;
-          pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
-       };
+    TRY(exc)
+    fSem = (NO_ERROR == somSelf->wpRequestObjectMutexSem(1000));
+    if (fSem) {
+       if (pUseItem->type == USAGE_OPENVIEW) {
+          ULONG openViews = 0;
+          PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
+          while (pViewItem) {
+             openViews++;
+             pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
+          };
 
-       if (openViews == 0) {
-          /*
-               at this point we would normally need to call wpLockObject on somSelf
-               to ensure that it does not go dormant when it is used asychronously
-               from the secondary thread. However, when a view opens, the object
-               is locked once anyways, therefore there is no need to do it
-           */
-          _beginthread(RefreshThread,NULL,0x8000,somSelf);
-       }
+          if (openViews == 0) {
+             /*
+                  at this point we would normally need to call wpLockObject on somSelf
+                  to ensure that it does not go dormant when it is used asychronously
+                  from the secondary thread. However, when a view opens, the object
+                  is locked once anyways, therefore there is no need to do it
+              */
+             _beginthread(RefreshThread,NULL,0x8000,somSelf);
+          }
+       } /* endif */
+    }
+    ENDTRY(exc);
+
+    if (fSem) {
+        somSelf->wpReleaseObjectMutexSem();
     } /* endif */
 
     return (WPHwManagerEx_parent_WPHwManager_wpAddToObjUseList(somSelf,
@@ -826,19 +823,29 @@ SOM_Scope BOOL  SOMLINK wpDeleteFromObjUseList(WPHwManagerEx *somSelf,
 {
     WPHwManagerExData *somThis = WPHwManagerExGetData(somSelf);
     WPHwManagerExMethodDebug("WPHwManagerEx","wpDeleteFromObjUseList");
+    BOOL fSem = FALSE;
 
-    if (pUseItem->type == USAGE_OPENVIEW) {
-       ULONG openViews = 0;
-       PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
-       while (pViewItem) {
-          openViews++;
-          pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
-       };
+    TRY(exc)
+    fSem = (NO_ERROR == somSelf->wpRequestObjectMutexSem(1000));
+    if (fSem) {
+       if (pUseItem->type == USAGE_OPENVIEW) {
+          ULONG openViews = 0;
+          PVIEWITEM pViewItem = somSelf->wpFindViewItem(VIEW_ANY,NULL);
+          while (pViewItem) {
+             openViews++;
+             pViewItem = somSelf->wpFindViewItem(VIEW_ANY,pViewItem);
+          };
 
 
-       if (openViews == 1 && somThis->hmqRefreshThread) {
-          WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
-       }
+          if (openViews == 1 && somThis->hmqRefreshThread) {
+             WinPostQueueMsg(somThis->hmqRefreshThread,WM_QUIT,MPVOID,MPVOID);
+          }
+       } /* endif */
+    }
+    ENDTRY(exc);
+
+    if (fSem) {
+        somSelf->wpReleaseObjectMutexSem();
     } /* endif */
 
     return (WPHwManagerEx_parent_WPHwManager_wpDeleteFromObjUseList(somSelf,
